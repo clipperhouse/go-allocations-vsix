@@ -198,28 +198,164 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
     }
 
     private async getAllocationData(functionItem: AllocationItem): Promise<AllocationItem[]> {
-        // For now, return some sample data
-        // TODO: Parse benchmark output to find allocation data
-        return [
-            new AllocationItem('Allocations: 1000', vscode.TreeItemCollapsibleState.None, 'allocationData'),
-            new AllocationItem('Bytes: 4096', vscode.TreeItemCollapsibleState.None, 'allocationData'),
-            new AllocationItem('Allocs/op: 2.5', vscode.TreeItemCollapsibleState.None, 'allocationData')
-        ];
+        if (!functionItem.filePath) {
+            return [];
+        }
+
+        try {
+            // Run benchmark with memory profiling
+            const memprofilePath = path.join(functionItem.filePath, 'memprofile.pb.gz');
+            const benchmarkName = functionItem.label;
+
+            // Run the specific benchmark with memory profiling and debug info
+            const { stdout, stderr } = await execAsync(
+                `go test -bench=^${benchmarkName}$ -memprofile=${memprofilePath} -run=^$ -gcflags="all=-N -l"`,
+                { cwd: functionItem.filePath }
+            );
+
+            if (stderr) {
+                console.error('Benchmark stderr:', stderr);
+            }
+
+            // Parse the memory profile using pprof
+            const allocationData = await this.parseMemoryProfile(memprofilePath, functionItem.filePath);
+
+            // Clean up the memory profile file
+            try {
+                await fs.promises.unlink(memprofilePath);
+            } catch (cleanupError) {
+                console.warn('Could not clean up memory profile file:', cleanupError);
+            }
+
+            return allocationData;
+        } catch (error) {
+            console.error('Error getting allocation data:', error);
+            return [
+                new AllocationItem(
+                    'Error running benchmark with memory profiling',
+                    vscode.TreeItemCollapsibleState.None,
+                    'error'
+                )
+            ];
+        }
     }
+
+    private async parseMemoryProfile(memprofilePath: string, packagePath: string): Promise<AllocationItem[]> {
+        try {
+            // Get the list of functions to find the main allocation function
+            const { stdout: listOutput } = await execAsync(`go tool pprof -list=. ${memprofilePath}`, {
+                cwd: packagePath
+            });
+
+            const allocationItems: AllocationItem[] = [];
+            const lines = listOutput.split('\n');
+
+            let currentFunction = '';
+            let currentFile = '';
+            let inFunction = false;
+
+            for (const line of lines) {
+                const trimmedLine = line.trim();
+
+                // Check if this is a function header
+                const functionMatch = trimmedLine.match(/ROUTINE =+ (.+) in (.+)/);
+                if (functionMatch) {
+                    currentFunction = functionMatch[1];
+                    currentFile = functionMatch[2];
+                    inFunction = true;
+                    continue;
+                }
+
+                // Check if we're in a function and this is a line with allocation data
+                if (inFunction && trimmedLine && !trimmedLine.includes('Total:') && !trimmedLine.includes('ROUTINE')) {
+                    // Parse line format: "flatBytes cumBytes lineNumber: code"
+                    // Example: "    2.50MB     5.50MB     36:	s := \"hello\" + strconv.Itoa(rand.Intn(1000))"
+                    const lineMatch = trimmedLine.match(/^\s*(\d+(?:\.\d+)?[KMGT]?B)?\s*(\d+(?:\.\d+)?[KMGT]?B)?\s*(\d+):\s*(.+)$/);
+                    if (lineMatch) {
+                        const flatBytes = lineMatch[1] || '0B';
+                        const cumBytes = lineMatch[2] || '0B';
+                        const lineNumber = parseInt(lineMatch[3]);
+                        const codeLine = lineMatch[4];
+
+                        if (lineNumber > 0 && (flatBytes !== '0B' || cumBytes !== '0B')) {
+                            const functionName = currentFunction.split('.').pop() || 'unknown';
+
+                            const allocationItem = new AllocationItem(
+                                `Line ${lineNumber}: ${codeLine.trim()} (${flatBytes} flat, ${cumBytes} cum)`,
+                                vscode.TreeItemCollapsibleState.None,
+                                'allocationLine',
+                                currentFile,
+                                lineNumber,
+                                {
+                                    flatPercent: '0', // We don't have percentage in this format
+                                    cumPercent: '0',
+                                    bytes: flatBytes,
+                                    objBytes: cumBytes,
+                                    callCount: 'N/A',
+                                    functionName: functionName
+                                }
+                            );
+                            allocationItems.push(allocationItem);
+                        }
+                    }
+                }
+
+                // Reset when we hit an empty line or new function
+                if (trimmedLine === '' || trimmedLine.includes('ROUTINE')) {
+                    inFunction = false;
+                }
+            }
+
+            // If no allocation data found, show a message
+            if (allocationItems.length === 0) {
+                allocationItems.push(new AllocationItem(
+                    'No allocation data found',
+                    vscode.TreeItemCollapsibleState.None,
+                    'noAllocations'
+                ));
+            }
+
+            return allocationItems;
+        } catch (error) {
+            console.error('Error parsing memory profile:', error);
+            return [
+                new AllocationItem(
+                    'Error parsing memory profile',
+                    vscode.TreeItemCollapsibleState.None,
+                    'error'
+                )
+            ];
+        }
+    }
+}
+
+export interface AllocationData {
+    flatPercent: string;
+    cumPercent: string;
+    bytes: string;
+    objBytes: string;
+    callCount: string;
+    functionName: string;
 }
 
 export class AllocationItem extends vscode.TreeItem {
     public readonly filePath?: string;
+    public readonly lineNumber?: number;
+    public readonly allocationData?: AllocationData;
 
     constructor(
         public readonly label: string,
         public readonly collapsibleState: vscode.TreeItemCollapsibleState,
         public readonly contextValue: string,
-        filePath?: string
+        filePath?: string,
+        lineNumber?: number,
+        allocationData?: AllocationData
     ) {
         super(label, collapsibleState);
         this.contextValue = contextValue;
         this.filePath = filePath;
+        this.lineNumber = lineNumber;
+        this.allocationData = allocationData;
 
         // Set appropriate icons and tooltips based on context
         switch (contextValue) {
@@ -236,6 +372,15 @@ export class AllocationItem extends vscode.TreeItem {
                 this.iconPath = new vscode.ThemeIcon('symbol-function');
                 this.tooltip = `Benchmark function: ${label}`;
                 break;
+            case 'allocationLine':
+                this.iconPath = new vscode.ThemeIcon('symbol-field');
+                this.tooltip = this.buildAllocationTooltip();
+                this.command = {
+                    command: 'goAllocations.openFileAtLine',
+                    title: 'Open File at Line',
+                    arguments: [filePath, lineNumber]
+                };
+                break;
             case 'allocationData':
                 this.iconPath = new vscode.ThemeIcon('graph');
                 this.tooltip = `Allocation metric: ${label}`;
@@ -248,10 +393,29 @@ export class AllocationItem extends vscode.TreeItem {
                 this.iconPath = new vscode.ThemeIcon('info');
                 this.tooltip = 'No benchmark functions found in this package';
                 break;
+            case 'noAllocations':
+                this.iconPath = new vscode.ThemeIcon('info');
+                this.tooltip = 'No allocation data found for this benchmark';
+                break;
             case 'error':
                 this.iconPath = new vscode.ThemeIcon('error');
                 this.tooltip = 'Error occurred while listing benchmarks';
                 break;
         }
+    }
+
+    private buildAllocationTooltip(): string {
+        if (!this.allocationData) {
+            return this.label;
+        }
+
+        const { flatPercent, cumPercent, bytes, objBytes, callCount, functionName } = this.allocationData;
+        return [
+            `Function: ${functionName}`,
+            `Flat allocation: ${bytes} (${flatPercent}% of total)`,
+            `Cumulative allocation: ${objBytes} (${cumPercent}% of total)`,
+            callCount !== 'N/A' ? `Call count: ${callCount}` : '',
+            this.filePath && this.lineNumber ? `Location: ${path.basename(this.filePath)}:${this.lineNumber}` : ''
+        ].filter(line => line).join('\n');
     }
 }

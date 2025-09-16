@@ -1,6 +1,8 @@
 package main
 
 import (
+	"math/rand"
+	"strconv"
 	"sync"
 	"testing"
 )
@@ -29,10 +31,18 @@ func BenchmarkMutexOperations(b *testing.B) {
 	})
 }
 
+func doSomething() []string {
+	slice := make([]string, 0)
+	s := "hello" + strconv.Itoa(rand.Intn(1000))
+	for range 1000 {
+		slice = append(slice, s)
+	}
+	return slice
+}
+
 func BenchmarkSlicePreAllocate(b *testing.B) {
-	slice := make([]string, 0, b.N)
 	for i := 0; i < b.N; i++ {
-		slice = append(slice, "pre-allocated")
+		doSomething()
 	}
 }
 

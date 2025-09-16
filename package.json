@@ -66,6 +66,12 @@
                 "when": "view == goAllocationsExplorer"
             },
             {
+                "command": "goAllocations.runBenchmarksWithMemprofile",
+                "title": "Run Benchmarks with Memory Profiling",
+                "icon": "$(graph)",
+                "when": "view == goAllocationsExplorer"
+            },
+            {
                 "command": "goAllocations.openFile",
                 "title": "Open File",
                 "when": "view == goAllocationsExplorer && viewItem == benchmarkFile"
@@ -74,6 +80,11 @@
                 "command": "goAllocations.runSingleBenchmark",
                 "title": "Run This Benchmark",
                 "when": "view == goAllocationsExplorer && viewItem == benchmarkFunction"
+            },
+            {
+                "command": "goAllocations.openFileAtLine",
+                "title": "Open File at Line",
+                "when": "view == goAllocationsExplorer && viewItem == allocationLine"
             },
             {
                 "command": "goAllocations.test",
@@ -92,6 +103,11 @@
                     "command": "goAllocations.runBenchmarks",
                     "when": "view == goAllocationsExplorer",
                     "group": "navigation"
+                },
+                {
+                    "command": "goAllocations.runBenchmarksWithMemprofile",
+                    "when": "view == goAllocationsExplorer",
+                    "group": "navigation"
                 }
             ],
             "view/item/context": [
@@ -103,6 +119,11 @@
                 {
                     "command": "goAllocations.runSingleBenchmark",
                     "when": "view == goAllocationsExplorer && viewItem == benchmarkFunction",
+                    "group": "inline"
+                },
+                {
+                    "command": "goAllocations.openFileAtLine",
+                    "when": "view == goAllocationsExplorer && viewItem == allocationLine",
                     "group": "inline"
                 }
             ]
