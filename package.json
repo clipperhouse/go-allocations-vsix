@@ -1,0 +1,121 @@
+{
+    "name": "go-allocations-vsix",
+    "displayName": "Go Allocations Explorer",
+    "description": "VS Code extension to help locate Go allocations from benchmarks",
+    "version": "0.0.1",
+    "publisher": "msherman",
+    "engines": {
+        "vscode": "^1.74.0"
+    },
+    "categories": [
+        "Other"
+    ],
+    "activationEvents": [
+        "*"
+    ],
+    "main": "./out/extension.js",
+    "contributes": {
+        "configuration": {
+            "title": "Go Allocations",
+            "properties": {
+                "goAllocations.benchmarkCommand": {
+                    "type": "string",
+                    "default": "go test -bench=. -benchmem",
+                    "description": "Command to run Go benchmarks with memory allocation data"
+                },
+                "goAllocations.includeSubdirectories": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Include Go test files from subdirectories"
+                },
+                "goAllocations.autoRefresh": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Automatically refresh the view when files change"
+                }
+            }
+        },
+        "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "goAllocations",
+                    "title": "Go Allocations",
+                    "icon": "$(test-view-icon)"
+                }
+            ]
+        },
+        "views": {
+            "goAllocations": [
+                {
+                    "id": "goAllocationsExplorer",
+                    "name": "Go Allocations"
+                }
+            ]
+        },
+        "commands": [
+            {
+                "command": "goAllocations.refresh",
+                "title": "Refresh",
+                "icon": "$(refresh)",
+                "when": "view == goAllocationsExplorer"
+            },
+            {
+                "command": "goAllocations.runBenchmarks",
+                "title": "Run Benchmarks",
+                "icon": "$(play)",
+                "when": "view == goAllocationsExplorer"
+            },
+            {
+                "command": "goAllocations.openFile",
+                "title": "Open File",
+                "when": "view == goAllocationsExplorer && viewItem == benchmarkFile"
+            },
+            {
+                "command": "goAllocations.runSingleBenchmark",
+                "title": "Run This Benchmark",
+                "when": "view == goAllocationsExplorer && viewItem == benchmarkFunction"
+            },
+            {
+                "command": "goAllocations.test",
+                "title": "Test Extension",
+                "when": "true"
+            }
+        ],
+        "menus": {
+            "view/title": [
+                {
+                    "command": "goAllocations.refresh",
+                    "when": "view == goAllocationsExplorer",
+                    "group": "navigation"
+                },
+                {
+                    "command": "goAllocations.runBenchmarks",
+                    "when": "view == goAllocationsExplorer",
+                    "group": "navigation"
+                }
+            ],
+            "view/item/context": [
+                {
+                    "command": "goAllocations.openFile",
+                    "when": "view == goAllocationsExplorer && viewItem == benchmarkFile",
+                    "group": "inline"
+                },
+                {
+                    "command": "goAllocations.runSingleBenchmark",
+                    "when": "view == goAllocationsExplorer && viewItem == benchmarkFunction",
+                    "group": "inline"
+                }
+            ]
+        }
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./"
+    },
+    "devDependencies": {
+        "@types/vscode": "^1.74.0",
+        "@types/node": "16.x",
+        "typescript": "^4.9.4"
+    }
+}
