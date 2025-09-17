@@ -1,8 +1,8 @@
 {
     "name": "go-allocations-vsix",
     "displayName": "Go Allocations Explorer",
-    "description": "VS Code extension to help locate Go allocations from benchmarks",
-    "version": "0.0.1",
+    "description": "A VS Code extension that helps locate and analyze Go allocations from benchmark tests, providing a tree view similar to the Test Explorer panel.",
+    "version": "0.1.0",
     "publisher": "msherman",
     "engines": {
         "vscode": "^1.74.0"
@@ -10,14 +10,53 @@
     "categories": [
         "Other"
     ],
+    "keywords": [
+        "go",
+        "golang",
+        "benchmark",
+        "allocation",
+        "performance",
+        "profiling",
+        "testing"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/clipperhouse/go-allocations-vsix.git"
+    },
+    "homepage": "https://github.com/clipperhouse/go-allocations-vsix#readme",
+    "bugs": {
+        "url": "https://github.com/clipperhouse/go-allocations-vsix/issues"
+    },
+    "license": "MIT",
+    "author": {
+        "name": "msherman",
+        "email": "msherman@example.com"
+    },
     "activationEvents": [
-        "*"
+        "workspaceContains:**/*_test.go",
+        "onCommand:goAllocations.test"
     ],
     "main": "./out/extension.js",
     "contributes": {
         "configuration": {
             "title": "Go Allocations Explorer",
-            "properties": {}
+            "properties": {
+                "goAllocations.benchmarkTimeout": {
+                    "type": "number",
+                    "default": 300,
+                    "description": "Timeout in seconds for running benchmarks"
+                },
+                "goAllocations.maxConcurrency": {
+                    "type": "number",
+                    "default": 4,
+                    "description": "Maximum number of benchmarks to run concurrently"
+                },
+                "goAllocations.autoRunOnOpen": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Automatically run benchmarks when opening a Go workspace"
+                }
+            }
         },
         "viewsContainers": {
             "activitybar": [
