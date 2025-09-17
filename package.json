@@ -90,6 +90,11 @@
                 "command": "goAllocations.test",
                 "title": "Test Extension",
                 "when": "true"
+            },
+            {
+                "command": "goAllocations.testLowestDepth",
+                "title": "Test Lowest Depth",
+                "when": "true"
             }
         ],
         "menus": {

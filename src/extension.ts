@@ -3,6 +3,7 @@ import { GoAllocationsProvider } from './goAllocationsProvider';
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('Go Allocations extension is now active!');
+    console.log('Workspace folders:', vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath));
     vscode.window.showInformationMessage('Go Allocations extension activated!');
 
     // Create the provider
@@ -16,6 +17,10 @@ export function activate(context: vscode.ExtensionContext) {
             showCollapseAll: true
         });
         console.log('Tree view created successfully:', treeView);
+
+        // Add the tree view to subscriptions
+        context.subscriptions.push(treeView);
+        console.log('Tree view added to subscriptions');
     } catch (error) {
         console.error('Error creating tree view:', error);
         vscode.window.showErrorMessage('Error creating tree view: ' + (error as Error).message);
@@ -77,12 +82,7 @@ export function activate(context: vscode.ExtensionContext) {
         terminal.sendText(`cd "${item.filePath}" && go test -bench=^${item.label}$ -benchmem`);
     });
 
-    // Add a simple test command
-    const testCommand = vscode.commands.registerCommand('goAllocations.test', () => {
-        vscode.window.showInformationMessage('Test command works!');
-    });
-
-    context.subscriptions.push(refreshCommand, runBenchmarksCommand, runBenchmarksWithMemprofileCommand, openFileCommand, openFileAtLineCommand, runSingleBenchmarkCommand, testCommand);
+    context.subscriptions.push(refreshCommand, runBenchmarksCommand, runBenchmarksWithMemprofileCommand, openFileCommand, openFileAtLineCommand, runSingleBenchmarkCommand);
 }
 
 export function deactivate() { }

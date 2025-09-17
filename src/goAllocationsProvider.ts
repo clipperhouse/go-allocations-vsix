@@ -10,12 +10,20 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
     private _onDidChangeTreeData: vscode.EventEmitter<AllocationItem | undefined | null | void> = new vscode.EventEmitter<AllocationItem | undefined | null | void>();
     readonly onDidChangeTreeData: vscode.Event<AllocationItem | undefined | null | void> = this._onDidChangeTreeData.event;
 
+    // Cache for discovered packages
+    private packages: { name: string; path: string }[] = [];
+    private packagesLoaded = false;
+    private isLoading = false;
+
     constructor() {
         console.log('GoAllocationsProvider constructor called');
-        // Initialize with some sample data for now
+        console.log('Workspace folders in constructor:', vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath));
     }
 
     refresh(): void {
+        this.packagesLoaded = false;
+        this.packages = [];
+        this.isLoading = false;
         this._onDidChangeTreeData.fire();
     }
 
@@ -23,88 +31,128 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         return element;
     }
 
-    getChildren(element?: AllocationItem): Thenable<AllocationItem[]> {
+    async getChildren(element?: AllocationItem): Promise<AllocationItem[]> {
+        console.log('getChildren called with element:', element ? element.label : 'root');
+
         if (!element) {
-            // Root level - show benchmark files
-            return this.getBenchmarkFiles();
-        } else if (element.contextValue === 'benchmarkFile') {
-            // Show benchmark functions in the file
+            // Root level - show all packages with benchmarks
+            console.log('Getting root level children (packages)');
+
+            // If loaded, return packages
+            if (this.packagesLoaded) {
+                return this.packages.map(pkg => new AllocationItem(
+                    pkg.name,
+                    vscode.TreeItemCollapsibleState.Expanded,
+                    'package',
+                    pkg.path
+                ));
+            }
+
+            // If currently loading, show loading message
+            if (this.isLoading) {
+                return [new AllocationItem(
+                    'Discovering benchmarks…',
+                    vscode.TreeItemCollapsibleState.None,
+                    'loading'
+                )];
+            }
+
+            // Start loading process
+            this.isLoading = true;
+            this._onDidChangeTreeData.fire();
+
+            // Start the actual loading process in the background
+            this.loadPackages().catch(error => {
+                console.error('Error loading packages:', error);
+                this.isLoading = false;
+                this._onDidChangeTreeData.fire();
+            });
+
+            // Return loading message immediately
+            return [new AllocationItem(
+                'Discovering benchmarks…',
+                vscode.TreeItemCollapsibleState.None,
+                'loading'
+            )];
+        } else if (element.contextValue === 'package') {
+            // Show benchmark functions in this package
+            console.log('Getting benchmark functions for package:', element.label);
             return this.getBenchmarkFunctions(element);
         } else if (element.contextValue === 'benchmarkFunction') {
             // Show allocation data for the function
+            console.log('Getting allocation data for:', element.label);
             return this.getAllocationData(element);
         }
+
+        console.log('No matching context value, returning empty array');
         return Promise.resolve([]);
     }
 
-    private async getBenchmarkFiles(): Promise<AllocationItem[]> {
-        const files: AllocationItem[] = [];
+    private async loadPackages(): Promise<void> {
+        console.log('Starting package discovery...');
 
         if (!vscode.workspace.workspaceFolders) {
-            return files;
+            this.isLoading = false;
+            this.packagesLoaded = true;
+            this._onDidChangeTreeData.fire();
+            return;
         }
 
         for (const workspaceFolder of vscode.workspace.workspaceFolders) {
             try {
-                // Use go list to find packages with test files
-                const testPackages = await this.findGoTestPackages(workspaceFolder.uri.fsPath);
-                for (const pkg of testPackages) {
-                    const item = new AllocationItem(
-                        pkg.name,
-                        vscode.TreeItemCollapsibleState.Collapsed,
-                        'benchmarkFile',
-                        pkg.path
-                    );
-                    files.push(item);
+                console.log('Processing workspace folder:', workspaceFolder.uri.fsPath);
+                const benchmarkPackages = await this.findBenchmarkPackages(workspaceFolder.uri.fsPath);
+
+                for (const pkg of benchmarkPackages) {
+                    this.packages.push(pkg);
                 }
             } catch (error) {
-                console.error('Error finding Go test packages:', error);
-                // Fallback to file-based discovery
-                const testFiles = await this.findGoTestFiles(workspaceFolder.uri.fsPath);
-                for (const file of testFiles) {
-                    const relativePath = path.relative(workspaceFolder.uri.fsPath, file);
-                    const item = new AllocationItem(
-                        relativePath,
-                        vscode.TreeItemCollapsibleState.Collapsed,
-                        'benchmarkFile',
-                        file
-                    );
-                    files.push(item);
-                }
+                console.error('Error finding benchmark packages:', error);
             }
         }
 
-        // If no test files found, show a message
-        if (files.length === 0) {
-            files.push(new AllocationItem(
-                'No Go test packages found',
-                vscode.TreeItemCollapsibleState.None,
-                'noFiles'
-            ));
-        }
+        console.log('Package discovery complete. Found', this.packages.length, 'packages');
+        this.packagesLoaded = true;
+        this.isLoading = false;
 
-        return files;
+        // Fire change event to update the tree with final results
+        this._onDidChangeTreeData.fire();
     }
 
-    private async findGoTestPackages(rootPath: string): Promise<{ name: string; path: string }[]> {
+    private async findBenchmarkPackages(rootPath: string): Promise<{ name: string; path: string }[]> {
         try {
-            // Use go list to find all packages with test files
-            const { stdout } = await execAsync('go list -f "{{.Name}} {{.Dir}}" ./...', { cwd: rootPath });
+            // First, get all packages using go list
+            const { stdout: packagesOutput } = await execAsync('go list -f "{{.Name}} {{.Dir}}" ./...', { cwd: rootPath });
 
             const packages: { name: string; path: string }[] = [];
-            const lines = stdout.trim().split('\n');
+            const packageLines = packagesOutput.trim().split('\n');
 
-            for (const line of lines) {
+            // For each package, check if it has benchmarks
+            for (const line of packageLines) {
                 if (line.trim()) {
                     const parts = line.trim().split(' ');
                     if (parts.length >= 2) {
-                        const name = parts[0];
-                        const dir = parts.slice(1).join(' ');
+                        const packageName = parts[0];
+                        const packageDir = parts.slice(1).join(' ');
 
-                        // Check if this package has test files
-                        const hasTestFiles = await this.packageHasTestFiles(dir);
-                        if (hasTestFiles) {
-                            packages.push({ name, path: dir });
+                        try {
+                            // Check if this package has benchmarks
+                            const { stdout: benchmarksOutput } = await execAsync(
+                                'go test -list="^Benchmark[A-Z][^/]*$"',
+                                { cwd: packageDir }
+                            );
+
+                            const benchmarkLines = benchmarksOutput.trim().split('\n');
+                            const hasBenchmarks = benchmarkLines.some(line =>
+                                line.trim().startsWith('Benchmark') && !line.includes('ok')
+                            );
+
+                            if (hasBenchmarks) {
+                                packages.push({ name: packageName, path: packageDir });
+                            }
+                        } catch (packageError) {
+                            // Skip packages that can't be tested (e.g., no test files)
+                            console.warn(`Could not test package ${packageName}:`, packageError);
                         }
                     }
                 }
@@ -112,52 +160,19 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
 
             return packages;
         } catch (error) {
-            console.error('Error running go list command:', error);
+            console.error('Error finding benchmark packages:', error);
             throw error;
         }
     }
 
-    private async packageHasTestFiles(packagePath: string): Promise<boolean> {
-        try {
-            const files = await fs.promises.readdir(packagePath);
-            return files.some(file => file.endsWith('_test.go'));
-        } catch (error) {
-            return false;
-        }
-    }
-
-    private async findGoTestFiles(rootPath: string): Promise<string[]> {
-        const testFiles: string[] = [];
-
-        try {
-            const files = await fs.promises.readdir(rootPath, { withFileTypes: true });
-
-            for (const file of files) {
-                const fullPath = path.join(rootPath, file.name);
-
-                if (file.isDirectory() && !file.name.startsWith('.') && file.name !== 'node_modules') {
-                    // Recursively search subdirectories
-                    const subFiles = await this.findGoTestFiles(fullPath);
-                    testFiles.push(...subFiles);
-                } else if (file.isFile() && file.name.endsWith('_test.go')) {
-                    testFiles.push(fullPath);
-                }
-            }
-        } catch (error) {
-            console.error('Error scanning directory:', error);
-        }
-
-        return testFiles;
-    }
-
-    private async getBenchmarkFunctions(fileItem: AllocationItem): Promise<AllocationItem[]> {
-        if (!fileItem.filePath) {
+    private async getBenchmarkFunctions(packageItem: AllocationItem): Promise<AllocationItem[]> {
+        if (!packageItem.filePath) {
             return [];
         }
 
         try {
             // Use go test -list to find benchmark functions in the package
-            const { stdout } = await execAsync('go test -list=^Benchmark', { cwd: fileItem.filePath });
+            const { stdout } = await execAsync('go test -list="^Benchmark[A-Z][^/]*$"', { cwd: packageItem.filePath });
 
             const benchmarkFunctions: AllocationItem[] = [];
             const lines = stdout.trim().split('\n');
@@ -167,9 +182,9 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
                 if (functionName && functionName.startsWith('Benchmark')) {
                     const item = new AllocationItem(
                         functionName,
-                        vscode.TreeItemCollapsibleState.Collapsed,
+                        vscode.TreeItemCollapsibleState.Collapsed, // Not expanded by default
                         'benchmarkFunction',
-                        fileItem.filePath
+                        packageItem.filePath
                     );
                     benchmarkFunctions.push(item);
                 }
@@ -278,24 +293,28 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
                         const codeLine = lineMatch[4];
 
                         if (lineNumber > 0 && (flatBytes !== '0B' || cumBytes !== '0B')) {
-                            const functionName = currentFunction.split('.').pop() || 'unknown';
+                            // Only show allocations from user code, not runtime
+                            const isUser = await this.isUserCode(currentFile, currentFunction);
+                            if (isUser) {
+                                const functionName = currentFunction.split('.').pop() || 'unknown';
 
-                            const allocationItem = new AllocationItem(
-                                `Line ${lineNumber}: ${codeLine.trim()} (${flatBytes} flat, ${cumBytes} cum)`,
-                                vscode.TreeItemCollapsibleState.None,
-                                'allocationLine',
-                                currentFile,
-                                lineNumber,
-                                {
-                                    flatPercent: '0', // We don't have percentage in this format
-                                    cumPercent: '0',
-                                    bytes: flatBytes,
-                                    objBytes: cumBytes,
-                                    callCount: 'N/A',
-                                    functionName: functionName
-                                }
-                            );
-                            allocationItems.push(allocationItem);
+                                const allocationItem = new AllocationItem(
+                                    `Line ${lineNumber}: ${codeLine.trim()} (${flatBytes} flat, ${cumBytes} cum)`,
+                                    vscode.TreeItemCollapsibleState.None,
+                                    'allocationLine',
+                                    currentFile,
+                                    lineNumber,
+                                    {
+                                        flatPercent: '0', // We don't have percentage in this format
+                                        cumPercent: '0',
+                                        bytes: flatBytes,
+                                        objBytes: cumBytes,
+                                        callCount: 'N/A',
+                                        functionName: functionName
+                                    }
+                                );
+                                allocationItems.push(allocationItem);
+                            }
                         }
                     }
                 }
@@ -309,7 +328,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
             // If no allocation data found, show a message
             if (allocationItems.length === 0) {
                 allocationItems.push(new AllocationItem(
-                    'No allocation data found',
+                    'No allocations found',
                     vscode.TreeItemCollapsibleState.None,
                     'noAllocations'
                 ));
@@ -325,6 +344,43 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
                     'error'
                 )
             ];
+        }
+    }
+
+    private async isUserCode(filePath: string, functionName: string): Promise<boolean> {
+        try {
+            // Get Go environment variables to determine what's user code vs standard library
+            const { stdout: goroot } = await execAsync('go env GOROOT');
+            const { stdout: gomod } = await execAsync('go env GOMOD');
+
+            const goRoot = goroot.trim();
+            const goMod = gomod.trim();
+
+            // If we have a go.mod file, use the module root as the user code boundary
+            if (goMod && goMod !== '/dev/null') {
+                const moduleRoot = path.dirname(goMod);
+                // Check if the file is within the current module
+                if (filePath.startsWith(moduleRoot)) {
+                    return true;
+                }
+            }
+
+            // If the file is in GOROOT, it's standard library
+            if (filePath.startsWith(goRoot)) {
+                return false;
+            }
+
+            // If the file is in a vendor directory, it's not user code
+            if (filePath.includes('/vendor/')) {
+                return false;
+            }
+
+            // Default to user code if we can't determine otherwise
+            return true;
+        } catch (error) {
+            console.error('Error determining if code is user code:', error);
+            // Fallback to a simple heuristic if go env fails
+            return !filePath.includes('/go/');
         }
     }
 }
@@ -359,7 +415,7 @@ export class AllocationItem extends vscode.TreeItem {
 
         // Set appropriate icons and tooltips based on context
         switch (contextValue) {
-            case 'benchmarkFile':
+            case 'package':
                 this.iconPath = new vscode.ThemeIcon('package');
                 this.tooltip = `Go package: ${label}${filePath ? `\nPath: ${filePath}` : ''}`;
                 this.command = {
@@ -381,9 +437,9 @@ export class AllocationItem extends vscode.TreeItem {
                     arguments: [filePath, lineNumber]
                 };
                 break;
-            case 'allocationData':
-                this.iconPath = new vscode.ThemeIcon('graph');
-                this.tooltip = `Allocation metric: ${label}`;
+            case 'loading':
+                this.iconPath = new vscode.ThemeIcon('loading~spin');
+                this.tooltip = 'Discovering Go benchmark packages...';
                 break;
             case 'noFiles':
                 this.iconPath = new vscode.ThemeIcon('info');
