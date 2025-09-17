@@ -3,12 +3,13 @@
     "displayName": "Go Allocations Explorer",
     "description": "A VS Code extension that helps locate and analyze Go allocations from benchmark tests, providing a tree view similar to the Test Explorer panel.",
     "version": "0.1.0",
-    "publisher": "msherman",
+    "publisher": "Clipperhouse",
     "engines": {
         "vscode": "^1.74.0"
     },
     "categories": [
-        "Other"
+        "Debugging",
+        "Benchmarking"
     ],
     "keywords": [
         "go",
@@ -29,12 +30,11 @@
     },
     "license": "MIT",
     "author": {
-        "name": "msherman",
-        "email": "msherman@example.com"
+        "name": "Matt Sherman",
+        "email": "mwsherman@gmail.com"
     },
     "activationEvents": [
-        "workspaceContains:**/*_test.go",
-        "onCommand:goAllocations.test"
+        "workspaceContains:**/*_test.go"
     ],
     "main": "./out/extension.js",
     "contributes": {
@@ -63,7 +63,7 @@
                 {
                     "id": "goAllocations",
                     "title": "Go Allocations Explorer",
-                    "icon": "$(test-view-icon)"
+                    "icon": "$(graph)"
                 }
             ]
         },
