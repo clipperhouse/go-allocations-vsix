@@ -19,9 +19,36 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
     // Track which benchmarks have been run
     private runBenchmarks: Set<string> = new Set();
 
+    // Cache for Go environment variables to avoid shelling out on every isUserCode call
+    private goRoot: string | null = null;
+    private goMod: string | null = null;
+    private goEnvInitialized = false;
+
     constructor() {
         console.log('GoAllocationsProvider constructor called');
         console.log('Workspace folders in constructor:', vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath));
+        // Initialize Go environment variables
+        this.initializeGoEnvironment();
+    }
+
+    private async initializeGoEnvironment(): Promise<void> {
+        try {
+            // Get Go environment variables once and cache them
+            const { stdout: goroot } = await execAsync('go env GOROOT');
+            const { stdout: gomod } = await execAsync('go env GOMOD');
+
+            this.goRoot = goroot.trim();
+            this.goMod = gomod.trim();
+            this.goEnvInitialized = true;
+
+            console.log('Go environment initialized:', { goRoot: this.goRoot, goMod: this.goMod });
+        } catch (error) {
+            console.error('Error initializing Go environment:', error);
+            // Set fallback values
+            this.goRoot = null;
+            this.goMod = null;
+            this.goEnvInitialized = true;
+        }
     }
 
 
@@ -424,13 +451,15 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
     }
 
     private async isUserCode(filePath: string, functionName: string): Promise<boolean> {
-        try {
-            // Get Go environment variables to determine what's user code vs standard library
-            const { stdout: goroot } = await execAsync('go env GOROOT');
-            const { stdout: gomod } = await execAsync('go env GOMOD');
+        // Wait for Go environment to be initialized if not already done
+        if (!this.goEnvInitialized) {
+            await this.initializeGoEnvironment();
+        }
 
-            const goRoot = goroot.trim();
-            const goMod = gomod.trim();
+        try {
+            // Use cached Go environment variables
+            const goRoot = this.goRoot;
+            const goMod = this.goMod;
 
             // If we have a go.mod file, use the module root as the user code boundary
             if (goMod && goMod !== '/dev/null') {
@@ -442,7 +471,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
             }
 
             // If the file is in GOROOT, it's standard library
-            if (filePath.startsWith(goRoot)) {
+            if (goRoot && filePath.startsWith(goRoot)) {
                 return false;
             }
 
