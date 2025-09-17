@@ -11,11 +11,10 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
     private _onDidChangeTreeData: vscode.EventEmitter<AllocationItem | undefined | null | void> = new vscode.EventEmitter<AllocationItem | undefined | null | void>();
     readonly onDidChangeTreeData: vscode.Event<AllocationItem | undefined | null | void> = this._onDidChangeTreeData.event;
 
-    // Cache for discovered packages
-    private packages: { name: string; path: string }[] = [];
+    // Cache for discovered packages and their benchmarks
+    private packages: { name: string; path: string; benchmarks: string[] }[] = [];
     private packagesLoaded = false;
     private discoveryInProgress = false;
-    private updateTimeout: NodeJS.Timeout | null = null;
 
     // Track which benchmarks have been run
     private runBenchmarks: Set<string> = new Set();
@@ -29,10 +28,6 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         this.packagesLoaded = false;
         this.packages = [];
         this.discoveryInProgress = false;
-        if (this.updateTimeout) {
-            clearTimeout(this.updateTimeout);
-            this.updateTimeout = null;
-        }
         this._onDidChangeTreeData.fire();
     }
 
@@ -41,17 +36,6 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         this._onDidChangeTreeData.fire();
     }
 
-    async ensurePackagesLoaded(): Promise<void> {
-        if (!this.packagesLoaded && !this.discoveryInProgress) {
-            this.discoveryInProgress = true;
-            await this.loadPackages();
-        }
-
-        // Wait for packages to be loaded
-        while (!this.packagesLoaded && this.discoveryInProgress) {
-            await new Promise(resolve => setTimeout(resolve, 100));
-        }
-    }
 
     getTreeItem(element: AllocationItem): vscode.TreeItem {
         // For benchmark functions, check if they have been run and update accordingly
@@ -61,7 +45,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
 
             if (hasBeenRun && element.collapsibleState === vscode.TreeItemCollapsibleState.Collapsed) {
                 // Update tooltip and add command for re-running
-                element.tooltip = `Benchmark function: ${element.label}\nClick to re-run and discover allocations`;
+                element.tooltip = `Click to re-run ${element.label} and discover allocations`;
                 element.command = {
                     command: 'goAllocations.runSingleBenchmark',
                     title: 'Re-run benchmark',
@@ -131,16 +115,24 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
                 ));
             }
 
-            // Start loading process only if not already in progress
+            // If not loaded and not in progress, start loading and wait for it
             if (!this.discoveryInProgress) {
                 this.discoveryInProgress = true;
-                this.loadPackages().catch(error => {
+                try {
+                    await this.loadPackages();
+                } catch (error) {
                     console.error('Error loading packages:', error);
                     this.discoveryInProgress = false;
-                });
+                    throw error;
+                }
+            } else {
+                // If already in progress, wait for it to complete
+                while (!this.packagesLoaded && this.discoveryInProgress) {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
             }
 
-            // Return current packages (empty initially, will update as packages are discovered)
+            // Return packages after loading is complete
             return this.packages.map(pkg => new AllocationItem(
                 pkg.name,
                 vscode.TreeItemCollapsibleState.Expanded,
@@ -173,7 +165,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         for (const workspaceFolder of vscode.workspace.workspaceFolders) {
             try {
                 console.log('Processing workspace folder:', workspaceFolder.uri.fsPath);
-                await this.streamPackagesFromWorkspace(workspaceFolder.uri.fsPath);
+                await this.loadPackagesFromWorkspace(workspaceFolder.uri.fsPath);
             } catch (error) {
                 console.error('Error processing workspace folder:', error);
             }
@@ -185,13 +177,13 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         this._onDidChangeTreeData.fire();
     }
 
-    private async streamPackagesFromWorkspace(rootPath: string): Promise<void> {
+    private async loadPackagesFromWorkspace(rootPath: string): Promise<void> {
         try {
             // Get all packages first
             const { stdout: packagesOutput } = await execAsync('go list -f "{{.Name}} {{.Dir}}" ./...', { cwd: rootPath });
             const packageLines = packagesOutput.trim().split('\n');
 
-            // Process each package individually
+            // Process each package and discover benchmarks in one go
             for (let line of packageLines) {
                 line = line.trim();
                 if (!line) {
@@ -207,23 +199,22 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
                 const packageDir = parts.slice(1).join(' ');
 
                 try {
-                    // Check if this specific package has benchmarks
+                    // Get benchmark functions for this package
                     const { stdout: benchmarksOutput } = await execAsync(
                         'go test -list="^Benchmark[A-Z][^/]*$"',
                         { cwd: packageDir }
                     );
 
                     const benchmarkLines = benchmarksOutput.trim().split('\n');
-                    const hasBenchmarks = benchmarkLines.some(line =>
-                        line.startsWith('Benchmark') && !line.includes('ok')
-                    );
+                    const benchmarks = benchmarkLines
+                        .filter(line => line.startsWith('Benchmark') && !line.includes('ok'))
+                        .map(line => line.trim());
 
-                    if (hasBenchmarks) {
-                        // Add package immediately and schedule tree update
-                        const pkg = { name: packageName, path: packageDir };
+                    if (benchmarks.length > 0) {
+                        // Add package with its benchmarks
+                        const pkg = { name: packageName, path: packageDir, benchmarks };
                         this.packages.push(pkg);
-                        console.log('Discovered package:', packageName);
-                        this.scheduleUpdate();
+                        console.log(`Discovered package: ${packageName} with ${benchmarks.length} benchmarks`);
                     }
                 } catch (packageError) {
                     // Skip packages that can't be tested (e.g., no test files)
@@ -231,69 +222,51 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
                 }
             }
         } catch (error) {
-            console.error('Error streaming packages from workspace:', error);
+            console.error('Error loading packages from workspace:', error);
             throw error;
         }
     }
 
-    private scheduleUpdate(): void {
-        // Clear any existing timeout
-        if (this.updateTimeout) {
-            clearTimeout(this.updateTimeout);
-        }
-
-        // Schedule update after a short delay to batch rapid discoveries
-        this.updateTimeout = setTimeout(() => {
-            this._onDidChangeTreeData.fire();
-            this.updateTimeout = null;
-        }, 200); // 200ms batching delay
-    }
 
     private async getBenchmarkFunctions(packageItem: AllocationItem): Promise<AllocationItem[]> {
         if (!packageItem.filePath) {
             return [];
         }
 
-        try {
-            // Use go test -list to find benchmark functions in the package
-            const { stdout } = await execAsync('go test -list="^Benchmark[A-Z][^/]*$"', { cwd: packageItem.filePath });
-
-            const benchmarkFunctions: AllocationItem[] = [];
-            const lines = stdout.trim().split('\n');
-
-            for (const line of lines) {
-                const functionName = line.trim();
-                if (functionName && functionName.startsWith('Benchmark')) {
-                    const item = new AllocationItem(
-                        functionName,
-                        vscode.TreeItemCollapsibleState.Collapsed, // Not expanded by default
-                        'benchmarkFunction',
-                        packageItem.filePath
-                    );
-                    benchmarkFunctions.push(item);
-                }
-            }
-
-            // If no benchmarks found, show a message
-            if (benchmarkFunctions.length === 0) {
-                benchmarkFunctions.push(new AllocationItem(
-                    'No benchmark functions found',
-                    vscode.TreeItemCollapsibleState.None,
-                    'noBenchmarks'
-                ));
-            }
-
-            return benchmarkFunctions;
-        } catch (error) {
-            console.error('Error listing benchmark functions:', error);
+        // Find the package in our cache
+        const pkg = this.packages.find(p => p.path === packageItem.filePath);
+        if (!pkg) {
             return [
                 new AllocationItem(
-                    'Error listing benchmarks',
+                    'Package not found in cache',
                     vscode.TreeItemCollapsibleState.None,
                     'error'
                 )
             ];
         }
+
+        const benchmarkFunctions: AllocationItem[] = [];
+
+        for (const functionName of pkg.benchmarks) {
+            const item = new AllocationItem(
+                functionName,
+                vscode.TreeItemCollapsibleState.Collapsed, // Not expanded by default
+                'benchmarkFunction',
+                packageItem.filePath
+            );
+            benchmarkFunctions.push(item);
+        }
+
+        // If no benchmarks found, show a message
+        if (benchmarkFunctions.length === 0) {
+            benchmarkFunctions.push(new AllocationItem(
+                'No benchmark functions found',
+                vscode.TreeItemCollapsibleState.None,
+                'noBenchmarks'
+            ));
+        }
+
+        return benchmarkFunctions;
     }
 
     private async getAllocationData(functionItem: AllocationItem, abortSignal?: AbortSignal): Promise<AllocationItem[]> {

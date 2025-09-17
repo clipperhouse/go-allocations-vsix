@@ -83,16 +83,6 @@ export function activate(context: vscode.ExtensionContext) {
                     return;
                 }
 
-                // First ensure packages are loaded
-                console.log('Ensuring packages are loaded...');
-                await provider.ensurePackagesLoaded();
-
-                // Check if cancelled after package loading
-                if (abortSignal.aborted) {
-                    console.log('Operation cancelled after package loading');
-                    return;
-                }
-
                 console.log('Packages loaded, getting root items...');
 
                 // Get all root items (packages)
