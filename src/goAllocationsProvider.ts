@@ -192,37 +192,42 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
             const packageLines = packagesOutput.trim().split('\n');
 
             // Process each package individually
-            for (const line of packageLines) {
-                if (line.trim()) {
-                    const parts = line.trim().split(' ');
-                    if (parts.length >= 2) {
-                        const packageName = parts[0];
-                        const packageDir = parts.slice(1).join(' ');
+            for (let line of packageLines) {
+                line = line.trim();
+                if (!line) {
+                    continue;
+                }
 
-                        try {
-                            // Check if this specific package has benchmarks
-                            const { stdout: benchmarksOutput } = await execAsync(
-                                'go test -list="^Benchmark[A-Z][^/]*$"',
-                                { cwd: packageDir }
-                            );
+                const parts = line.split(' ');
+                if (parts.length < 2) {
+                    continue;
+                }
 
-                            const benchmarkLines = benchmarksOutput.trim().split('\n');
-                            const hasBenchmarks = benchmarkLines.some(line =>
-                                line.trim().startsWith('Benchmark') && !line.includes('ok')
-                            );
+                const packageName = parts[0];
+                const packageDir = parts.slice(1).join(' ');
 
-                            if (hasBenchmarks) {
-                                // Add package immediately and schedule tree update
-                                const pkg = { name: packageName, path: packageDir };
-                                this.packages.push(pkg);
-                                console.log('Discovered package:', packageName);
-                                this.scheduleUpdate();
-                            }
-                        } catch (packageError) {
-                            // Skip packages that can't be tested (e.g., no test files)
-                            console.warn(`Could not test package ${packageName}:`, packageError);
-                        }
+                try {
+                    // Check if this specific package has benchmarks
+                    const { stdout: benchmarksOutput } = await execAsync(
+                        'go test -list="^Benchmark[A-Z][^/]*$"',
+                        { cwd: packageDir }
+                    );
+
+                    const benchmarkLines = benchmarksOutput.trim().split('\n');
+                    const hasBenchmarks = benchmarkLines.some(line =>
+                        line.startsWith('Benchmark') && !line.includes('ok')
+                    );
+
+                    if (hasBenchmarks) {
+                        // Add package immediately and schedule tree update
+                        const pkg = { name: packageName, path: packageDir };
+                        this.packages.push(pkg);
+                        console.log('Discovered package:', packageName);
+                        this.scheduleUpdate();
                     }
+                } catch (packageError) {
+                    // Skip packages that can't be tested (e.g., no test files)
+                    console.warn(`Could not test package ${packageName}:`, packageError);
                 }
             }
         } catch (error) {
