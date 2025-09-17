@@ -16,14 +16,14 @@
     "main": "./out/extension.js",
     "contributes": {
         "configuration": {
-            "title": "Go Allocations",
+            "title": "Go Allocations Explorer",
             "properties": {}
         },
         "viewsContainers": {
             "activitybar": [
                 {
                     "id": "goAllocations",
-                    "title": "Go Allocations",
+                    "title": "Go Allocations Explorer",
                     "icon": "$(test-view-icon)"
                 }
             ]
@@ -32,7 +32,7 @@
             "goAllocations": [
                 {
                     "id": "goAllocationsExplorer",
-                    "name": "Go Allocations"
+                    "name": "Go Allocations Explorer"
                 }
             ]
         },
