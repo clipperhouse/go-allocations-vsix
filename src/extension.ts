@@ -20,6 +20,7 @@ export function activate(context: vscode.ExtensionContext) {
             treeDataProvider: provider,
             showCollapseAll: true
         });
+
         console.log('Tree view created successfully:', treeView);
 
         // Add the tree view to subscriptions
@@ -46,12 +47,6 @@ export function activate(context: vscode.ExtensionContext) {
     }
 
     // Register commands
-    const refreshCommand = vscode.commands.registerCommand('goAllocations.refresh', () => {
-        console.log('Refresh command called!');
-        provider.refresh();
-    });
-
-
     const openFileCommand = vscode.commands.registerCommand('goAllocations.openFile', (item) => {
         if (item && item.filePath) {
             vscode.window.showTextDocument(vscode.Uri.file(item.filePath));
@@ -287,7 +282,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    context.subscriptions.push(refreshCommand, runAllBenchmarksCommand, stopAllBenchmarksCommand, runSingleBenchmarkCommand, openFileCommand);
+    context.subscriptions.push(runAllBenchmarksCommand, stopAllBenchmarksCommand, runSingleBenchmarkCommand, openFileCommand);
 }
 
 export function deactivate() { }

@@ -24,12 +24,6 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         console.log('Workspace folders in constructor:', vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath));
     }
 
-    refresh(): void {
-        this.packagesLoaded = false;
-        this.packages = [];
-        this.discoveryInProgress = false;
-        this._onDidChangeTreeData.fire();
-    }
 
     clearBenchmarkRunState(benchmarkKey: string): void {
         this.runBenchmarks.delete(benchmarkKey);

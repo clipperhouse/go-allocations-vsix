@@ -38,12 +38,6 @@
         },
         "commands": [
             {
-                "command": "goAllocations.refresh",
-                "title": "Refresh",
-                "icon": "$(refresh)",
-                "when": "view == goAllocationsExplorer"
-            },
-            {
                 "command": "goAllocations.runAllBenchmarks",
                 "title": "Run all benchmarks and discover allocations",
                 "icon": "$(run-all)",
@@ -79,11 +73,6 @@
         ],
         "menus": {
             "view/title": [
-                {
-                    "command": "goAllocations.refresh",
-                    "when": "view == goAllocationsExplorer",
-                    "group": "navigation"
-                },
                 {
                     "command": "goAllocations.runAllBenchmarks",
                     "when": "view == goAllocationsExplorer",
