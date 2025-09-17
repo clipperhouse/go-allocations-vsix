@@ -256,17 +256,19 @@ export function activate(context: vscode.ExtensionContext) {
         const abortSignal = currentAbortController.signal;
 
         try {
-
-            vscode.window.showInformationMessage(`Re-running benchmark: ${benchmarkItem.label}`);
+            vscode.window.showInformationMessage(`Running benchmark: ${benchmarkItem.label}`);
 
             // Clear the benchmark from the run set so it can be re-run
             const benchmarkKey = `${benchmarkItem.filePath}:${benchmarkItem.label}`;
             provider.clearBenchmarkRunState(benchmarkKey);
 
-            // Expand the benchmark function node to trigger re-run
-            await treeView.reveal(benchmarkItem, { expand: true });
+            // Directly call getAllocationData to run the benchmark synchronously
+            // This ensures we wait for actual completion before showing success
+            const allocationData = await provider.getAllocationData(benchmarkItem, abortSignal);
 
             if (!abortSignal.aborted) {
+                // Update the tree to show the results
+                provider._onDidChangeTreeData.fire(benchmarkItem);
                 vscode.window.showInformationMessage(`Benchmark ${benchmarkItem.label} completed!`);
             }
         } catch (error) {

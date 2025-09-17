@@ -8,7 +8,7 @@ import { promisify } from 'util';
 const execAsync = promisify(exec);
 
 export class GoAllocationsProvider implements vscode.TreeDataProvider<AllocationItem> {
-    private _onDidChangeTreeData: vscode.EventEmitter<AllocationItem | undefined | null | void> = new vscode.EventEmitter<AllocationItem | undefined | null | void>();
+    public _onDidChangeTreeData: vscode.EventEmitter<AllocationItem | undefined | null | void> = new vscode.EventEmitter<AllocationItem | undefined | null | void>();
     readonly onDidChangeTreeData: vscode.Event<AllocationItem | undefined | null | void> = this._onDidChangeTreeData.event;
 
     // Cache for discovered packages and their benchmarks
@@ -27,7 +27,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
 
     clearBenchmarkRunState(benchmarkKey: string): void {
         this.runBenchmarks.delete(benchmarkKey);
-        this._onDidChangeTreeData.fire();
+        // Don't fire tree refresh here - let the caller decide when to refresh
     }
 
 
@@ -263,7 +263,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         return benchmarkFunctions;
     }
 
-    private async getAllocationData(functionItem: AllocationItem, abortSignal?: AbortSignal): Promise<AllocationItem[]> {
+    async getAllocationData(functionItem: AllocationItem, abortSignal?: AbortSignal): Promise<AllocationItem[]> {
         if (!functionItem.filePath) {
             return [];
         }
