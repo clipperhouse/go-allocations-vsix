@@ -411,8 +411,6 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
                                     currentFile,
                                     lineNumber,
                                     {
-                                        flatPercent: '0', // We don't have percentage in this format
-                                        cumPercent: '0',
                                         bytes: flatBytes,
                                         objBytes: cumBytes,
                                         callCount: 'N/A',
@@ -492,8 +490,6 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
 }
 
 export interface AllocationData {
-    flatPercent: string;
-    cumPercent: string;
     bytes: string;
     objBytes: string;
     callCount: string;
@@ -564,11 +560,11 @@ export class AllocationItem extends vscode.TreeItem {
             return this.label;
         }
 
-        const { flatPercent, cumPercent, bytes, objBytes, callCount, functionName } = this.allocationData;
+        const { bytes, objBytes, callCount, functionName } = this.allocationData;
         return [
             `Function: ${functionName}`,
-            `Flat allocation: ${bytes} (${flatPercent}% of total)`,
-            `Cumulative allocation: ${objBytes} (${cumPercent}% of total)`,
+            `Flat allocation: ${bytes}`,
+            `Cumulative allocation: ${objBytes}`,
             callCount !== 'N/A' ? `Call count: ${callCount}` : '',
             this.filePath && this.lineNumber ? `Location: ${path.basename(this.filePath)}:${this.lineNumber}` : ''
         ].filter(line => line).join('\n');
