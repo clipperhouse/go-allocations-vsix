@@ -71,18 +71,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    const runSingleBenchmarkCommand = vscode.commands.registerCommand('goAllocations.runSingleBenchmark', async (item) => {
-        if (!item || !item.filePath) {
-            vscode.window.showErrorMessage('No benchmark selected');
-            return;
-        }
-
-        const terminal = vscode.window.createTerminal(`Go Benchmark: ${item.label}`);
-        terminal.show();
-        terminal.sendText(`cd "${item.filePath}" && go test -bench=^${item.label}$ -benchmem`);
-    });
-
-    context.subscriptions.push(refreshCommand, runBenchmarksCommand, runBenchmarksWithMemprofileCommand, openFileCommand, openFileAtLineCommand, runSingleBenchmarkCommand);
+    context.subscriptions.push(refreshCommand, runBenchmarksCommand, runBenchmarksWithMemprofileCommand, openFileCommand, openFileAtLineCommand);
 }
 
 export function deactivate() { }

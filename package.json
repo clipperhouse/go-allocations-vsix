@@ -77,11 +77,6 @@
                 "when": "view == goAllocationsExplorer && viewItem == benchmarkFile"
             },
             {
-                "command": "goAllocations.runSingleBenchmark",
-                "title": "Run This Benchmark",
-                "when": "view == goAllocationsExplorer && viewItem == benchmarkFunction"
-            },
-            {
                 "command": "goAllocations.openFileAtLine",
                 "title": "Open File at Line",
                 "when": "view == goAllocationsExplorer && viewItem == allocationLine"
@@ -119,11 +114,6 @@
                 {
                     "command": "goAllocations.openFile",
                     "when": "view == goAllocationsExplorer && viewItem == benchmarkFile",
-                    "group": "inline"
-                },
-                {
-                    "command": "goAllocations.runSingleBenchmark",
-                    "when": "view == goAllocationsExplorer && viewItem == benchmarkFunction",
                     "group": "inline"
                 },
                 {

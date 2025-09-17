@@ -14,6 +14,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
     private packages: { name: string; path: string }[] = [];
     private packagesLoaded = false;
     private discoveryInProgress = false;
+    private updateTimeout: NodeJS.Timeout | null = null;
 
     constructor() {
         console.log('GoAllocationsProvider constructor called');
@@ -24,6 +25,10 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         this.packagesLoaded = false;
         this.packages = [];
         this.discoveryInProgress = false;
+        if (this.updateTimeout) {
+            clearTimeout(this.updateTimeout);
+            this.updateTimeout = null;
+        }
         this._onDidChangeTreeData.fire();
     }
 
@@ -129,11 +134,11 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
                             );
 
                             if (hasBenchmarks) {
-                                // Add package immediately and update tree
+                                // Add package immediately and schedule tree update
                                 const pkg = { name: packageName, path: packageDir };
                                 this.packages.push(pkg);
                                 console.log('Discovered package:', packageName);
-                                this._onDidChangeTreeData.fire();
+                                this.scheduleUpdate();
                             }
                         } catch (packageError) {
                             // Skip packages that can't be tested (e.g., no test files)
@@ -146,6 +151,19 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
             console.error('Error streaming packages from workspace:', error);
             throw error;
         }
+    }
+
+    private scheduleUpdate(): void {
+        // Clear any existing timeout
+        if (this.updateTimeout) {
+            clearTimeout(this.updateTimeout);
+        }
+
+        // Schedule update after a short delay to batch rapid discoveries
+        this.updateTimeout = setTimeout(() => {
+            this._onDidChangeTreeData.fire();
+            this.updateTimeout = null;
+        }, 200); // 200ms batching delay
     }
 
     private async getBenchmarkFunctions(packageItem: AllocationItem): Promise<AllocationItem[]> {
@@ -409,7 +427,12 @@ export class AllocationItem extends vscode.TreeItem {
                 break;
             case 'benchmarkFunction':
                 this.iconPath = new vscode.ThemeIcon('symbol-function');
-                this.tooltip = `Benchmark function: ${label}`;
+                // Show different tooltip based on whether it's collapsed or expanded
+                if (this.collapsibleState === vscode.TreeItemCollapsibleState.Collapsed) {
+                    this.tooltip = `Click to run ${label} and discover allocations`;
+                } else {
+                    this.tooltip = `Benchmark function: ${label}`;
+                }
                 break;
             case 'allocationLine':
                 this.iconPath = new vscode.ThemeIcon('symbol-field');
