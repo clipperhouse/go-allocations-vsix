@@ -29,6 +29,7 @@
         "url": "https://github.com/clipperhouse/go-allocations-vsix/issues"
     },
     "license": "MIT",
+    "readme": "EXTENSION_README.md",
     "author": {
         "name": "Matt Sherman",
         "email": "mwsherman@gmail.com"
