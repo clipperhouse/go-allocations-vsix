@@ -143,48 +143,65 @@ export function activate(context: vscode.ExtensionContext) {
                     await provider.getChildren(benchmark.benchmarkFunction, abortSignal);
                 };
 
-                // Process benchmarks with concurrency control
+                // Process benchmarks with concurrency control while preserving display order
                 const processBenchmarks = async () => {
-                    const promises = allBenchmarks.map(async (benchmark, index) => {
-                        // Wait for a semaphore slot
-                        await new Promise(resolve => {
-                            const checkSlot = () => {
-                                if (abortSignal.aborted) {
-                                    resolve(undefined);
-                                    return;
-                                }
+                    // Process benchmarks in batches to maintain display order
+                    const batchSize = concurrency;
+                    const batches = [];
 
-                                for (let i = 0; i < concurrency; i++) {
-                                    if (semaphore[i] === null) {
-                                        semaphore[i] = benchmark;
+                    for (let i = 0; i < allBenchmarks.length; i += batchSize) {
+                        const batch = allBenchmarks.slice(i, i + batchSize);
+                        batches.push(batch);
+                    }
+
+                    // Process each batch sequentially, but within each batch run concurrently
+                    for (const batch of batches) {
+                        if (abortSignal.aborted) {
+                            break;
+                        }
+
+                        const batchPromises = batch.map(async (benchmark) => {
+                            // Wait for a semaphore slot
+                            await new Promise(resolve => {
+                                const checkSlot = () => {
+                                    if (abortSignal.aborted) {
                                         resolve(undefined);
                                         return;
                                     }
+
+                                    for (let i = 0; i < concurrency; i++) {
+                                        if (semaphore[i] === null) {
+                                            semaphore[i] = benchmark;
+                                            resolve(undefined);
+                                            return;
+                                        }
+                                    }
+                                    // If no slot available, wait a bit and try again
+                                    setTimeout(checkSlot, 10);
+                                };
+                                checkSlot();
+                            });
+
+                            try {
+                                await runBenchmark(benchmark);
+                            } catch (error) {
+                                if (abortSignal.aborted) {
+                                    console.log('Benchmark cancelled:', benchmark.benchmarkFunction.label);
+                                } else {
+                                    console.error('Benchmark error:', error);
                                 }
-                                // If no slot available, wait a bit and try again
-                                setTimeout(checkSlot, 10);
-                            };
-                            checkSlot();
+                            } finally {
+                                // Release the semaphore slot
+                                const slotIndex = semaphore.indexOf(benchmark);
+                                if (slotIndex !== -1) {
+                                    semaphore[slotIndex] = null;
+                                }
+                            }
                         });
 
-                        try {
-                            await runBenchmark(benchmark);
-                        } catch (error) {
-                            if (abortSignal.aborted) {
-                                console.log('Benchmark cancelled:', benchmark.benchmarkFunction.label);
-                            } else {
-                                console.error('Benchmark error:', error);
-                            }
-                        } finally {
-                            // Release the semaphore slot
-                            const slotIndex = semaphore.indexOf(benchmark);
-                            if (slotIndex !== -1) {
-                                semaphore[slotIndex] = null;
-                            }
-                        }
-                    });
-
-                    await Promise.all(promises);
+                        // Wait for this batch to complete before starting the next batch
+                        await Promise.all(batchPromises);
+                    }
                 };
 
                 await processBenchmarks();

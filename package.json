@@ -68,7 +68,7 @@
             {
                 "command": "goAllocations.stopAllBenchmarks",
                 "title": "Stop all benchmarks",
-                "icon": "$(stop)",
+                "icon": "$(debug-stop)",
                 "when": "view == goAllocationsExplorer"
             },
             {

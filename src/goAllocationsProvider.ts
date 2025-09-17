@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
@@ -278,31 +279,35 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
                 throw new Error('Operation cancelled');
             }
 
-            // Run benchmark with memory profiling
-            const memprofilePath = path.join(functionItem.filePath, 'memprofile.pb.gz');
+            // Create unique temporary file for memory profile
+            const tempDir = os.tmpdir();
+            const uniqueId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}-${process.pid}`;
+            const memprofilePath = path.join(tempDir, `go-allocations-memprofile-${uniqueId}.pb.gz`);
             const benchmarkName = functionItem.label;
 
-            // Run the specific benchmark with memory profiling and debug info
-            const { stdout, stderr } = await execAsync(
-                `go test -bench=^${benchmarkName}$ -memprofile=${memprofilePath} -run=^$ -gcflags="all=-N -l"`,
-                { cwd: functionItem.filePath }
-            );
-
-            if (stderr) {
-                console.error('Benchmark stderr:', stderr);
-            }
-
-            // Parse the memory profile using pprof
-            const allocationData = await this.parseMemoryProfile(memprofilePath, functionItem.filePath);
-
-            // Clean up the memory profile file
             try {
-                await fs.promises.unlink(memprofilePath);
-            } catch (cleanupError) {
-                console.warn('Could not clean up memory profile file:', cleanupError);
-            }
+                // Run the specific benchmark with memory profiling and debug info
+                const { stdout, stderr } = await execAsync(
+                    `go test -bench=^${benchmarkName}$ -memprofile=${memprofilePath} -run=^$ -gcflags="all=-N -l"`,
+                    { cwd: functionItem.filePath }
+                );
 
-            return allocationData;
+                if (stderr) {
+                    console.error('Benchmark stderr:', stderr);
+                }
+
+                // Parse the memory profile using pprof
+                const allocationData = await this.parseMemoryProfile(memprofilePath, functionItem.filePath);
+
+                return allocationData;
+            } finally {
+                // Clean up the memory profile file
+                try {
+                    await fs.promises.unlink(memprofilePath);
+                } catch (cleanupError) {
+                    console.warn('Could not clean up memory profile file:', cleanupError);
+                }
+            }
         } catch (error) {
             console.error('Error getting allocation data:', error);
             return [
