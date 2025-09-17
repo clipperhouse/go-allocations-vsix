@@ -25,6 +25,21 @@ export function activate(context: vscode.ExtensionContext) {
         // Add the tree view to subscriptions
         context.subscriptions.push(treeView);
         console.log('Tree view added to subscriptions');
+
+        // Handle clicks on allocation lines
+        treeView.onDidChangeSelection(async (e) => {
+            if (e.selection.length > 0) {
+                const selectedItem = e.selection[0];
+                if (selectedItem.contextValue === 'allocationLine' && selectedItem.filePath && selectedItem.lineNumber) {
+                    // Open file at line
+                    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(selectedItem.filePath));
+                    const editor = await vscode.window.showTextDocument(document);
+                    const position = new vscode.Position(selectedItem.lineNumber - 1, 0); // Convert to 0-based line number
+                    editor.selection = new vscode.Selection(position, position);
+                    editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+                }
+            }
+        });
     } catch (error) {
         console.error('Error creating tree view:', error);
         vscode.window.showErrorMessage('Error creating tree view: ' + (error as Error).message);
@@ -43,15 +58,6 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    const openFileAtLineCommand = vscode.commands.registerCommand('goAllocations.openFileAtLine', async (filePath: string, lineNumber: number) => {
-        if (filePath && lineNumber) {
-            const document = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath));
-            const editor = await vscode.window.showTextDocument(document);
-            const position = new vscode.Position(lineNumber - 1, 0); // Convert to 0-based line number
-            editor.selection = new vscode.Selection(position, position);
-            editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
-        }
-    });
 
     const runAllBenchmarksCommand = vscode.commands.registerCommand('goAllocations.runAllBenchmarks', async () => {
         console.log('runAllBenchmarks command called!');
@@ -291,7 +297,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    context.subscriptions.push(refreshCommand, runAllBenchmarksCommand, stopAllBenchmarksCommand, runSingleBenchmarkCommand, openFileCommand, openFileAtLineCommand);
+    context.subscriptions.push(refreshCommand, runAllBenchmarksCommand, stopAllBenchmarksCommand, runSingleBenchmarkCommand, openFileCommand);
 }
 
 export function deactivate() { }

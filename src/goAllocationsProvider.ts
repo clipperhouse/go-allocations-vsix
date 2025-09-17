@@ -542,11 +542,7 @@ export class AllocationItem extends vscode.TreeItem {
             case 'allocationLine':
                 this.iconPath = new vscode.ThemeIcon('symbol-field');
                 this.tooltip = this.buildAllocationTooltip();
-                this.command = {
-                    command: 'goAllocations.openFileAtLine',
-                    title: 'Open File at Line',
-                    arguments: [filePath, lineNumber]
-                };
+                // No command - click will be handled by tree view selection event
                 break;
             case 'noFiles':
                 this.iconPath = new vscode.ThemeIcon('info');

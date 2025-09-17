@@ -17,23 +17,7 @@
     "contributes": {
         "configuration": {
             "title": "Go Allocations",
-            "properties": {
-                "goAllocations.benchmarkCommand": {
-                    "type": "string",
-                    "default": "go test -bench=. -benchmem",
-                    "description": "Command to run Go benchmarks with memory allocation data"
-                },
-                "goAllocations.includeSubdirectories": {
-                    "type": "boolean",
-                    "default": true,
-                    "description": "Include Go test files from subdirectories"
-                },
-                "goAllocations.autoRefresh": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Automatically refresh the view when files change"
-                }
-            }
+            "properties": {}
         },
         "viewsContainers": {
             "activitybar": [
@@ -77,11 +61,6 @@
                 "when": "view == goAllocationsExplorer && viewItem == benchmarkFile"
             },
             {
-                "command": "goAllocations.openFileAtLine",
-                "title": "Open File at Line",
-                "when": "view == goAllocationsExplorer && viewItem == allocationLine"
-            },
-            {
                 "command": "goAllocations.runSingleBenchmark",
                 "title": "Run benchmark",
                 "icon": "$(play)",
@@ -120,11 +99,6 @@
                 {
                     "command": "goAllocations.openFile",
                     "when": "view == goAllocationsExplorer && viewItem == benchmarkFile",
-                    "group": "inline"
-                },
-                {
-                    "command": "goAllocations.openFileAtLine",
-                    "when": "view == goAllocationsExplorer && viewItem == allocationLine",
                     "group": "inline"
                 },
                 {
