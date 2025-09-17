@@ -1,10 +1,10 @@
 # Go Allocations Explorer
 
-A VS Code extension that helps locate and analyze Go allocations from benchmark tests, providing a tree view similar to the Test Explorer panel.
+An extension that helps locate Go allocations, using your benchmarks.
 
 ## Screenshot
 
-<img src="https://raw.githubusercontent.com/clipperhouse/go-allocations-vsix/main/images/Screenshot1.png" width="600" alt="Go Allocations Explorer Screenshot">
+<img src="https://raw.githubusercontent.com/clipperhouse/go-allocations-vsix/main/images/Screenshot1.png" width="480" alt="Go Allocations Explorer Screenshot">
 
 ## Quick Start
 

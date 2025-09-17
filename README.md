@@ -1,23 +1,12 @@
 # Go Allocations Explorer
 
-A VS Code extension that helps locate and analyze Go allocations from benchmark tests, providing a tree view similar to the Test Explorer panel.
+A VS Code extension that helps locate Go allocations, using your benchmarks.
 
-## Features
+## Screenshot
 
-- **Tree View Interface**: Browse Go benchmark files in an organized tree structure
-- **Allocation Analysis**: Navigate benchmark functions and their allocation data
-- **Benchmark Execution**: Run individual benchmarks or all benchmarks at once
-- **Real-time Results**: View allocation patterns and metrics as benchmarks complete
-- **File Navigation**: Click on allocation lines to jump directly to source code
-- **Concurrent Execution**: Run multiple benchmarks in parallel for faster analysis
-
-## Version 0.1.0
-
-This is the initial release of the Go Allocations Explorer extension.
+<img src="https://raw.githubusercontent.com/clipperhouse/go-allocations-vsix/main/images/Screenshot1.png" width="480" alt="Go Allocations Explorer Screenshot">
 
 ## Installation
-
-### From VSIX File
 
 1. Download the latest `.vsix` file from the [Releases](https://github.com/clipperhouse/go-allocations-vsix/releases) page
 2. Open VS Code
@@ -26,65 +15,33 @@ This is the initial release of the Go Allocations Explorer extension.
 5. Select the downloaded `.vsix` file
 6. Reload VS Code when prompted
 
-### From Source
+### Quick Start
 
-See the Development section below for building from source.
-
-## Development
-
-### Prerequisites
-
-- Node.js (v16 or later)
-- TypeScript
-- VS Code
-
-### Setup
-
-1. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-2. Compile the TypeScript:
-   ```bash
-   npm run compile
-   ```
-
-3. Open this folder in VS Code and press F5 to run the extension in a new Extension Development Host window.
-
-### Building
-
-- `npm run compile` - Compile TypeScript to JavaScript
-- `npm run watch` - Watch for changes and compile automatically
-
-## Usage
-
-1. **Open a Go workspace** with benchmark test files (`*_test.go`)
+1. **Open a Go workspace (module)** that contains benchmarks
 2. **Find the extension** in the Activity Bar - look for the "Go Allocations Explorer" icon
 3. **Browse the tree structure**:
    - Packages containing benchmark files
    - Individual benchmark functions
-   - Allocation data and metrics
 4. **Run benchmarks**:
-   - Click "Run all benchmarks" to execute all benchmarks
-   - Click the play button next to individual benchmarks
-   - Use "Stop all benchmarks" to cancel running operations
-5. **Navigate to source code** by clicking on allocation lines
-6. **Configure settings** in VS Code settings for timeout, concurrency, etc.
+   - Click on a benchmark to run and discover allocations
+5. **Navigate to source lines** by clicking on allocations details
 
-### Configuration
+### Install from source
 
-The extension provides several configuration options:
+If you wish to build it yourself (good idea!), you can Google or GPT how to do that. The source is all here.
 
-- `goAllocations.benchmarkTimeout`: Timeout in seconds for running benchmarks (default: 300)
-- `goAllocations.maxConcurrency`: Maximum number of benchmarks to run concurrently (default: 4)
-- `goAllocations.autoRunOnOpen`: Automatically run benchmarks when opening a Go workspace (default: false)
+## Version 0.1.0
 
-## Roadmap
+- This is a basic, initial release.
+- Works on my machine™ with a typical Go codebase.
+- You will almost certainly find rough edges, let me know.
 
-- [ ] Parse actual Go benchmark files
-- [ ] Run `go test -bench` commands
-- [ ] Parse benchmark output for allocation data
-- [ ] Display allocation metrics in a user-friendly format
-- [ ] Add filtering and search capabilities
-- [ ] Integration with Go tools for detailed analysis
+## Support
+
+- **Issues**: [GitHub Issues](https://github.com/clipperhouse/go-allocations-vsix/issues)
+- **Repository**: [GitHub Repository](https://github.com/clipperhouse/go-allocations-vsix)
+- **𝕏**: [@clipperhouse](https://x.com/clipperhouse)
+
+## License
+
+MIT License - see [LICENSE](https://github.com/clipperhouse/go-allocations-vsix/blob/main/LICENSE).
