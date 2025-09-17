@@ -524,11 +524,7 @@ export class AllocationItem extends vscode.TreeItem {
             case 'package':
                 this.iconPath = new vscode.ThemeIcon('package');
                 this.tooltip = `Go package: ${label}${filePath ? `\nPath: ${filePath}` : ''}`;
-                this.command = {
-                    command: 'vscode.open',
-                    title: 'Open Package Directory',
-                    arguments: [vscode.Uri.file(filePath || '')]
-                };
+                // No command - package nodes only toggle expand/collapse
                 break;
             case 'benchmarkFunction':
                 this.iconPath = new vscode.ThemeIcon('symbol-function');
