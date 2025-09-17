@@ -60,15 +60,15 @@
                 "when": "view == goAllocationsExplorer"
             },
             {
-                "command": "goAllocations.runBenchmarks",
-                "title": "Run Benchmarks",
+                "command": "goAllocations.runAllBenchmarks",
+                "title": "Run all benchmarks and discover allocations",
                 "icon": "$(play)",
                 "when": "view == goAllocationsExplorer"
             },
             {
-                "command": "goAllocations.runBenchmarksWithMemprofile",
-                "title": "Run Benchmarks with Memory Profiling",
-                "icon": "$(graph)",
+                "command": "goAllocations.stopAllBenchmarks",
+                "title": "Stop all benchmarks",
+                "icon": "$(stop)",
                 "when": "view == goAllocationsExplorer"
             },
             {
@@ -100,12 +100,12 @@
                     "group": "navigation"
                 },
                 {
-                    "command": "goAllocations.runBenchmarks",
+                    "command": "goAllocations.runAllBenchmarks",
                     "when": "view == goAllocationsExplorer",
                     "group": "navigation"
                 },
                 {
-                    "command": "goAllocations.runBenchmarksWithMemprofile",
+                    "command": "goAllocations.stopAllBenchmarks",
                     "when": "view == goAllocationsExplorer",
                     "group": "navigation"
                 }

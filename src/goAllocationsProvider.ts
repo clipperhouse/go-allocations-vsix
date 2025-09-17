@@ -32,11 +32,65 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         this._onDidChangeTreeData.fire();
     }
 
+    async ensurePackagesLoaded(): Promise<void> {
+        if (!this.packagesLoaded && !this.discoveryInProgress) {
+            this.discoveryInProgress = true;
+            await this.loadPackages();
+        }
+
+        // Wait for packages to be loaded
+        while (!this.packagesLoaded && this.discoveryInProgress) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+    }
+
     getTreeItem(element: AllocationItem): vscode.TreeItem {
         return element;
     }
 
-    async getChildren(element?: AllocationItem): Promise<AllocationItem[]> {
+    getParent(element: AllocationItem): vscode.ProviderResult<AllocationItem> {
+        // For our tree structure:
+        // - Root level has no parent (return undefined)
+        // - Package items have no parent (return undefined)
+        // - Benchmark functions have package as parent
+        // - Allocation lines have benchmark function as parent
+
+        if (!element) {
+            return undefined; // Root level
+        }
+
+        if (element.contextValue === 'package') {
+            return undefined; // Package is at root level
+        }
+
+        if (element.contextValue === 'benchmarkFunction') {
+            // Find the parent package by looking at the filePath
+            if (element.filePath) {
+                const parentPackage = this.packages.find(pkg => pkg.path === element.filePath);
+                if (parentPackage) {
+                    return new AllocationItem(
+                        parentPackage.name,
+                        vscode.TreeItemCollapsibleState.Expanded,
+                        'package',
+                        parentPackage.path
+                    );
+                }
+            }
+            return undefined;
+        }
+
+        if (element.contextValue === 'allocationLine') {
+            // For allocation lines, we need to reconstruct the benchmark function
+            // This is tricky since we don't store the parent reference
+            // For now, return undefined - this might cause issues with reveal
+            return undefined;
+        }
+
+        return undefined;
+    }
+
+
+    async getChildren(element?: AllocationItem, abortSignal?: AbortSignal): Promise<AllocationItem[]> {
         console.log('getChildren called with element:', element ? element.label : 'root');
 
         if (!element) {
@@ -76,7 +130,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         } else if (element.contextValue === 'benchmarkFunction') {
             // Show allocation data for the function
             console.log('Getting allocation data for:', element.label);
-            return this.getAllocationData(element);
+            return this.getAllocationData(element, abortSignal);
         }
 
         console.log('No matching context value, returning empty array');
@@ -213,12 +267,17 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         }
     }
 
-    private async getAllocationData(functionItem: AllocationItem): Promise<AllocationItem[]> {
+    private async getAllocationData(functionItem: AllocationItem, abortSignal?: AbortSignal): Promise<AllocationItem[]> {
         if (!functionItem.filePath) {
             return [];
         }
 
         try {
+            // Check if operation is cancelled before starting
+            if (abortSignal?.aborted) {
+                throw new Error('Operation cancelled');
+            }
+
             // Run benchmark with memory profiling
             const memprofilePath = path.join(functionItem.filePath, 'memprofile.pb.gz');
             const benchmarkName = functionItem.label;
