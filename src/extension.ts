@@ -136,7 +136,9 @@ export function activate(context: vscode.ExtensionContext) {
                     console.log('Processing benchmark:', benchmark.benchmarkFunction.label);
 
                     // Expand the benchmark function node
-                    await treeView.reveal(benchmark.benchmarkFunction, { expand: true });
+                    if (treeView) {
+                        await treeView.reveal(benchmark.benchmarkFunction, { expand: true });
+                    }
 
                     // Get allocation data for this benchmark (this will run the benchmark)
                     // Pass the abort signal to the provider
@@ -234,13 +236,62 @@ export function activate(context: vscode.ExtensionContext) {
         if (currentAbortController) {
             console.log('Aborting current benchmark operation...');
             currentAbortController.abort();
-            vscode.window.showInformationMessage('Stopping all benchmarks...');
+            vscode.window.showInformationMessage('Stopping all benchmarks... Note: Running Go processes may take a moment to terminate.');
         } else {
             vscode.window.showInformationMessage('No benchmarks currently running');
         }
     });
 
-    context.subscriptions.push(refreshCommand, runAllBenchmarksCommand, stopAllBenchmarksCommand, openFileCommand, openFileAtLineCommand);
+    const runSingleBenchmarkCommand = vscode.commands.registerCommand('goAllocations.runSingleBenchmark', async (benchmarkItem: AllocationItem) => {
+        console.log('runSingleBenchmark command called for:', benchmarkItem.label);
+
+        if (!benchmarkItem || benchmarkItem.contextValue !== 'benchmarkFunction') {
+            vscode.window.showErrorMessage('Invalid benchmark item');
+            return;
+        }
+
+        if (!treeView) {
+            vscode.window.showErrorMessage('Tree view not available');
+            return;
+        }
+
+        // Cancel any existing operation
+        if (currentAbortController) {
+            currentAbortController.abort();
+        }
+
+        // Create new abort controller for this operation
+        currentAbortController = new AbortController();
+        const abortSignal = currentAbortController.signal;
+
+        try {
+
+            vscode.window.showInformationMessage(`Re-running benchmark: ${benchmarkItem.label}`);
+
+            // Clear the benchmark from the run set so it can be re-run
+            const benchmarkKey = `${benchmarkItem.filePath}:${benchmarkItem.label}`;
+            provider.clearBenchmarkRunState(benchmarkKey);
+
+            // Expand the benchmark function node to trigger re-run
+            await treeView.reveal(benchmarkItem, { expand: true });
+
+            if (!abortSignal.aborted) {
+                vscode.window.showInformationMessage(`Benchmark ${benchmarkItem.label} completed!`);
+            }
+        } catch (error) {
+            if (abortSignal?.aborted) {
+                console.log('Benchmark operation cancelled');
+                vscode.window.showInformationMessage('Benchmark operation cancelled');
+            } else {
+                console.error('Error running single benchmark:', error);
+                vscode.window.showErrorMessage('Error running benchmark: ' + (error as Error).message);
+            }
+        } finally {
+            currentAbortController = null;
+        }
+    });
+
+    context.subscriptions.push(refreshCommand, runAllBenchmarksCommand, stopAllBenchmarksCommand, runSingleBenchmarkCommand, openFileCommand, openFileAtLineCommand);
 }
 
 export function deactivate() { }

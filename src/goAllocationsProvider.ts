@@ -17,6 +17,9 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
     private discoveryInProgress = false;
     private updateTimeout: NodeJS.Timeout | null = null;
 
+    // Track which benchmarks have been run
+    private runBenchmarks: Set<string> = new Set();
+
     constructor() {
         console.log('GoAllocationsProvider constructor called');
         console.log('Workspace folders in constructor:', vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath));
@@ -33,6 +36,11 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         this._onDidChangeTreeData.fire();
     }
 
+    clearBenchmarkRunState(benchmarkKey: string): void {
+        this.runBenchmarks.delete(benchmarkKey);
+        this._onDidChangeTreeData.fire();
+    }
+
     async ensurePackagesLoaded(): Promise<void> {
         if (!this.packagesLoaded && !this.discoveryInProgress) {
             this.discoveryInProgress = true;
@@ -46,6 +54,21 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
     }
 
     getTreeItem(element: AllocationItem): vscode.TreeItem {
+        // For benchmark functions, check if they have been run and update accordingly
+        if (element.contextValue === 'benchmarkFunction') {
+            const benchmarkKey = `${element.filePath}:${element.label}`;
+            const hasBeenRun = this.runBenchmarks.has(benchmarkKey);
+
+            if (hasBeenRun && element.collapsibleState === vscode.TreeItemCollapsibleState.Collapsed) {
+                // Update tooltip and add command for re-running
+                element.tooltip = `Benchmark function: ${element.label}\nClick to re-run and discover allocations`;
+                element.command = {
+                    command: 'goAllocations.runSingleBenchmark',
+                    title: 'Re-run benchmark',
+                    arguments: [element]
+                };
+            }
+        }
         return element;
     }
 
@@ -289,15 +312,27 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
                 // Run the specific benchmark with memory profiling and debug info
                 const { stdout, stderr } = await execAsync(
                     `go test -bench=^${benchmarkName}$ -memprofile=${memprofilePath} -run=^$ -gcflags="all=-N -l"`,
-                    { cwd: functionItem.filePath }
+                    {
+                        cwd: functionItem.filePath,
+                        signal: abortSignal
+                    }
                 );
 
                 if (stderr) {
                     console.error('Benchmark stderr:', stderr);
                 }
 
+                // Check if operation was cancelled after benchmark completion
+                if (abortSignal?.aborted) {
+                    throw new Error('Operation cancelled');
+                }
+
                 // Parse the memory profile using pprof
-                const allocationData = await this.parseMemoryProfile(memprofilePath, functionItem.filePath);
+                const allocationData = await this.parseMemoryProfile(memprofilePath, functionItem.filePath, abortSignal);
+
+                // Mark this benchmark as run
+                const benchmarkKey = `${functionItem.filePath}:${functionItem.label}`;
+                this.runBenchmarks.add(benchmarkKey);
 
                 return allocationData;
             } finally {
@@ -320,11 +355,17 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         }
     }
 
-    private async parseMemoryProfile(memprofilePath: string, packagePath: string): Promise<AllocationItem[]> {
+    private async parseMemoryProfile(memprofilePath: string, packagePath: string, abortSignal?: AbortSignal): Promise<AllocationItem[]> {
         try {
+            // Check if operation was cancelled before parsing
+            if (abortSignal?.aborted) {
+                throw new Error('Operation cancelled');
+            }
+
             // Get the list of functions to find the main allocation function
             const { stdout: listOutput } = await execAsync(`go tool pprof -list=. ${memprofilePath}`, {
-                cwd: packagePath
+                cwd: packagePath,
+                signal: abortSignal
             });
 
             const allocationItems: AllocationItem[] = [];

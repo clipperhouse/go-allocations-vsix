@@ -62,7 +62,7 @@
             {
                 "command": "goAllocations.runAllBenchmarks",
                 "title": "Run all benchmarks and discover allocations",
-                "icon": "$(play)",
+                "icon": "$(run-all)",
                 "when": "view == goAllocationsExplorer"
             },
             {
@@ -80,6 +80,12 @@
                 "command": "goAllocations.openFileAtLine",
                 "title": "Open File at Line",
                 "when": "view == goAllocationsExplorer && viewItem == allocationLine"
+            },
+            {
+                "command": "goAllocations.runSingleBenchmark",
+                "title": "Run benchmark",
+                "icon": "$(play)",
+                "when": "view == goAllocationsExplorer && viewItem == benchmarkFunction"
             },
             {
                 "command": "goAllocations.test",
@@ -119,6 +125,11 @@
                 {
                     "command": "goAllocations.openFileAtLine",
                     "when": "view == goAllocationsExplorer && viewItem == allocationLine",
+                    "group": "inline"
+                },
+                {
+                    "command": "goAllocations.runSingleBenchmark",
+                    "when": "view == goAllocationsExplorer && viewItem == benchmarkFunction",
                     "group": "inline"
                 }
             ]
