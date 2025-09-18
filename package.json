@@ -1,15 +1,16 @@
 {
     "name": "go-allocations-vsix",
     "displayName": "Go Allocations Explorer",
-    "description": "A VS Code extension that helps locate and analyze Go allocations from benchmark tests, providing a tree view similar to the Test Explorer panel.",
-    "version": "0.1.0",
+    "description": "An extension that helps locate Go allocations, using your benchmarks.",
+    "icon": "images/memory.goblue.png",
+    "version": "0.1.2",
     "publisher": "Clipperhouse",
     "engines": {
         "vscode": "^1.74.0"
     },
     "categories": [
-        "Debugging",
-        "Benchmarking"
+        "Debuggers",
+        "Testing"
     ],
     "keywords": [
         "go",
@@ -29,7 +30,12 @@
         "url": "https://github.com/clipperhouse/go-allocations-vsix/issues"
     },
     "license": "MIT",
-    "readme": "EXTENSION_README.md",
+    "files": [
+        "out",
+        "images",
+        "README.md",
+        "LICENSE"
+    ],
     "author": {
         "name": "Matt Sherman",
         "email": "mwsherman@gmail.com"
@@ -64,7 +70,7 @@
                 {
                     "id": "goAllocations",
                     "title": "Go Allocations Explorer",
-                    "icon": "$(graph)"
+                    "icon": "images/memory.sidebar.png"
                 }
             ]
         },
