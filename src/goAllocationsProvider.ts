@@ -60,6 +60,30 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
     }
 
     /**
+     * Refresh the tree view by clearing all cached data and reloading packages.
+     * This destroys the existing tree view and builds a new one, just like on initial load.
+     */
+    refresh(): void {
+        console.log('Refreshing Go Allocations tree view...');
+
+        // Reset all cache state
+        this.packages = [];
+        this.packagesLoaded = false;
+        this.discoveryInProgress = false;
+
+        // Re-initialize Go environment variables
+        this.goRoot = null;
+        this.goMod = null;
+        this.goEnvInitialized = false;
+        this.initializeGoEnvironment();
+
+        // Fire tree data change event to refresh the view
+        this._onDidChangeTreeData.fire();
+
+        console.log('Tree view refresh completed');
+    }
+
+    /**
      * Method to run a benchmark and get allocation data.
      * Used internally by getChildren when expanding benchmark function nodes.
      */
@@ -84,34 +108,31 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
             return undefined; // Root level
         }
 
-        if (element.contextValue === 'package') {
-            return undefined; // Package is at root level
-        }
-
-        if (element.contextValue === 'benchmarkFunction') {
-            // Find the parent package by looking at the filePath
-            if (element.filePath) {
-                const parentPackage = this.packages.find(pkg => pkg.path === element.filePath);
-                if (parentPackage) {
-                    return new AllocationItem(
-                        parentPackage.name,
-                        vscode.TreeItemCollapsibleState.Expanded,
-                        'package',
-                        parentPackage.path
-                    );
+        switch (element.contextValue) {
+            case 'package':
+                return undefined; // Package is at root level
+            case 'benchmarkFunction':
+                // Find the parent package by looking at the filePath
+                if (element.filePath) {
+                    const parentPackage = this.packages.find(pkg => pkg.path === element.filePath);
+                    if (parentPackage) {
+                        return new AllocationItem(
+                            parentPackage.name,
+                            vscode.TreeItemCollapsibleState.Expanded,
+                            'package',
+                            parentPackage.path
+                        );
+                    }
                 }
-            }
-            return undefined;
+                return undefined;
+            case 'allocationLine':
+                // For allocation lines, we need to reconstruct the benchmark function
+                // This is tricky since we don't store the parent reference
+                // For now, return undefined - this might cause issues with reveal
+                return undefined;
+            default:
+                return undefined;
         }
-
-        if (element.contextValue === 'allocationLine') {
-            // For allocation lines, we need to reconstruct the benchmark function
-            // This is tricky since we don't store the parent reference
-            // For now, return undefined - this might cause issues with reveal
-            return undefined;
-        }
-
-        return undefined;
     }
 
 
@@ -145,7 +166,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
             } else {
                 // If already in progress, wait for it to complete
                 while (!this.packagesLoaded && this.discoveryInProgress) {
-                    await new Promise(resolve => setTimeout(resolve, 100));
+                    await new Promise(resolve => setTimeout(resolve, 200));
                 }
             }
 
@@ -156,21 +177,24 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
                 'package',
                 pkg.path
             ));
-        } else if (element.contextValue === 'package') {
-            // Show benchmark functions in this package
-            console.log('Getting benchmark functions for package:', element.label);
-            return this.getBenchmarkFunctions(element);
-        } else if (element.contextValue === 'benchmarkFunction') {
-            // Show allocation data for the function
-            console.log('Getting allocation data for:', element.label);
-            const allocationData = await this.runBenchmark(element, abortSignal);
-            // Mark this benchmark as run since we're returning allocation data
-            element.hasBeenRun = true;
-            return allocationData;
         }
 
-        console.log('No matching context value, returning empty array');
-        return Promise.resolve([]);
+        switch (element.contextValue) {
+            case 'package':
+                // Show benchmark functions in this package
+                console.log('Getting benchmark functions for package:', element.label);
+                return this.getBenchmarkFunctions(element);
+            case 'benchmarkFunction':
+                // Show allocation data for the function
+                console.log('Getting allocation data for:', element.label);
+                const allocationData = await this.runBenchmark(element, abortSignal);
+                // Mark this benchmark as run since we're returning allocation data
+                element.hasBeenRun = true;
+                return allocationData;
+            default:
+                console.log('No matching context value, returning empty array');
+                return Promise.resolve([]);
+        }
     }
 
     private async loadPackages(): Promise<void> {

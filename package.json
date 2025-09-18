@@ -96,6 +96,12 @@
                 "when": "view == goAllocationsExplorer"
             },
             {
+                "command": "goAllocations.refresh",
+                "title": "Refresh",
+                "icon": "$(refresh)",
+                "when": "view == goAllocationsExplorer"
+            },
+            {
                 "command": "goAllocations.openFile",
                 "title": "Open File",
                 "when": "view == goAllocationsExplorer && viewItem == benchmarkFile"
@@ -119,6 +125,11 @@
         ],
         "menus": {
             "view/title": [
+                {
+                    "command": "goAllocations.refresh",
+                    "when": "view == goAllocationsExplorer",
+                    "group": "navigation"
+                },
                 {
                     "command": "goAllocations.runAllBenchmarks",
                     "when": "view == goAllocationsExplorer",

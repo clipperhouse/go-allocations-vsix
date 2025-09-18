@@ -277,7 +277,22 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    context.subscriptions.push(runAllBenchmarksCommand, stopAllBenchmarksCommand, runSingleBenchmarkCommand, openFileCommand);
+    const refreshCommand = vscode.commands.registerCommand('goAllocations.refresh', () => {
+        console.log('refresh command called!');
+
+        // Cancel any existing operations first
+        if (currentAbortController) {
+            currentAbortController.abort();
+            currentAbortController = null;
+        }
+
+        // Refresh the provider
+        provider.refresh();
+
+        vscode.window.showInformationMessage('Go Allocations tree view refreshed');
+    });
+
+    context.subscriptions.push(runAllBenchmarksCommand, stopAllBenchmarksCommand, runSingleBenchmarkCommand, refreshCommand, openFileCommand);
 }
 
 export function deactivate() { }
