@@ -158,34 +158,17 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
             // Root level - show all packages with benchmarks
             console.log('Getting root level children (packages)');
 
-            // If loaded, return packages
-            if (this.packagesLoaded) {
-                return this.packages.map(pkg => new AllocationItem(
-                    this.getPackageLabel(pkg),
-                    vscode.TreeItemCollapsibleState.Expanded,
-                    'package',
-                    pkg.path
-                ));
-            }
-
-            // If not loaded and not in progress, start loading and wait for it
-            if (!this.discoveryInProgress) {
+            // If not loaded and not in progress, start loading
+            if (!this.discoveryInProgress && !this.packagesLoaded) {
                 this.discoveryInProgress = true;
-                try {
-                    await this.loadPackages();
-                } catch (error) {
+                // Start loading in the background - don't wait for it
+                this.loadPackages().catch(error => {
                     console.error('Error loading packages:', error);
                     this.discoveryInProgress = false;
-                    throw error;
-                }
-            } else {
-                // If already in progress, wait for it to complete
-                while (!this.packagesLoaded && this.discoveryInProgress) {
-                    await new Promise(resolve => setTimeout(resolve, 200));
-                }
+                });
             }
 
-            // Return packages after loading is complete
+            // Return currently discovered packages immediately (even if loading is still in progress)
             return this.packages.map(pkg => new AllocationItem(
                 this.getPackageLabel(pkg),
                 vscode.TreeItemCollapsibleState.Expanded,
@@ -217,23 +200,27 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
 
         if (!vscode.workspace.workspaceFolders) {
             this.packagesLoaded = true;
+            this.discoveryInProgress = false;
             this._onDidChangeTreeData.fire();
             return;
         }
 
-        for (const workspaceFolder of vscode.workspace.workspaceFolders) {
-            try {
-                console.log('Processing workspace folder:', workspaceFolder.uri.fsPath);
-                await this.loadPackagesFromWorkspace(workspaceFolder.uri.fsPath);
-            } catch (error) {
-                console.error('Error processing workspace folder:', error);
+        try {
+            for (const workspaceFolder of vscode.workspace.workspaceFolders) {
+                try {
+                    console.log('Processing workspace folder:', workspaceFolder.uri.fsPath);
+                    await this.loadPackagesFromWorkspace(workspaceFolder.uri.fsPath);
+                } catch (error) {
+                    console.error('Error processing workspace folder:', error);
+                }
             }
+        } finally {
+            console.log('Package discovery complete. Found', this.packages.length, 'packages');
+            this.packagesLoaded = true;
+            this.discoveryInProgress = false;
+            // Final tree update to ensure everything is rendered
+            this._onDidChangeTreeData.fire();
         }
-
-        console.log('Package discovery complete. Found', this.packages.length, 'packages');
-        this.packagesLoaded = true;
-        this.discoveryInProgress = false;
-        this._onDidChangeTreeData.fire();
     }
 
     private async loadPackagesFromWorkspace(rootPath: string): Promise<void> {
@@ -242,7 +229,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
             const { stdout: packagesOutput } = await execAsync('go list -f "{{.Name}} {{.Dir}}" ./...', { cwd: rootPath });
             const packageLines = packagesOutput.trim().split('\n');
 
-            // Process each package and discover benchmarks in one go
+            // Process each package and discover benchmarks, updating tree after each discovery
             for (let line of packageLines) {
                 line = line.trim();
                 if (!line) {
@@ -274,6 +261,9 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
                         const pkg = { name: packageName, path: packageDir, benchmarks };
                         this.packages.push(pkg);
                         console.log(`Discovered package: ${packageName} with ${benchmarks.length} benchmarks`);
+
+                        // Fire tree data change event to render this package immediately
+                        this._onDidChangeTreeData.fire();
                     }
                 } catch (packageError) {
                     // Skip packages that can't be tested (e.g., no test files)
