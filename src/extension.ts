@@ -257,8 +257,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         try {
             // Clear the benchmark run state and delete existing children
-            const benchmarkKey = `${benchmarkItem.filePath}:${benchmarkItem.label}`;
-            provider.clearBenchmarkRunState(benchmarkKey, benchmarkItem);
+            provider.clearBenchmarkRunState(benchmarkItem);
 
             // Show progress message
             vscode.window.showInformationMessage(`Running benchmark: ${benchmarkItem.label}`);

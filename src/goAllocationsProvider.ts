@@ -16,8 +16,6 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
     private packagesLoaded = false;
     private discoveryInProgress = false;
 
-    // Track which benchmarks have been run
-    private runBenchmarks: Set<string> = new Set();
 
     // Cache for Go environment variables to avoid shelling out on every isUserCode call
     private goRoot: string | null = null;
@@ -52,10 +50,9 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
     }
 
 
-    clearBenchmarkRunState(benchmarkKey: string, benchmarkItem?: AllocationItem): void {
-        this.runBenchmarks.delete(benchmarkKey);
-        // Fire tree refresh for the specific item to clear its children cache
+    clearBenchmarkRunState(benchmarkItem?: AllocationItem): void {
         if (benchmarkItem) {
+            benchmarkItem.hasBeenRun = false;
             this._onDidChangeTreeData.fire(benchmarkItem);
         } else {
             this._onDidChangeTreeData.fire();
@@ -75,10 +72,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
     getTreeItem(element: AllocationItem): vscode.TreeItem {
         // For benchmark functions, check if they have been run and update accordingly
         if (element.contextValue === 'benchmarkFunction') {
-            const benchmarkKey = `${element.filePath}:${element.label}`;
-            const hasBeenRun = this.runBenchmarks.has(benchmarkKey);
-
-            if (hasBeenRun && element.collapsibleState === vscode.TreeItemCollapsibleState.Collapsed) {
+            if (element.hasBeenRun && element.collapsibleState === vscode.TreeItemCollapsibleState.Collapsed) {
                 // Update tooltip and add command for re-running
                 element.tooltip = `Click to re-run ${element.label} and discover allocations`;
                 element.command = {
@@ -181,7 +175,10 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         } else if (element.contextValue === 'benchmarkFunction') {
             // Show allocation data for the function
             console.log('Getting allocation data for:', element.label);
-            return this.runBenchmark(element, abortSignal);
+            const allocationData = await this.runBenchmark(element, abortSignal);
+            // Mark this benchmark as run since we're returning allocation data
+            element.hasBeenRun = true;
+            return allocationData;
         }
 
         console.log('No matching context value, returning empty array');
@@ -342,10 +339,6 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
 
                 // Parse the memory profile using pprof
                 const allocationData = await this.parseMemoryProfile(memprofilePath, functionItem.filePath, abortSignal);
-
-                // Mark this benchmark as run
-                const benchmarkKey = `${functionItem.filePath}:${functionItem.label}`;
-                this.runBenchmarks.add(benchmarkKey);
 
                 return allocationData;
             } finally {
@@ -515,6 +508,7 @@ export class AllocationItem extends vscode.TreeItem {
     public readonly filePath?: string;
     public readonly lineNumber?: number;
     public readonly allocationData?: AllocationData;
+    public hasBeenRun: boolean = false;
 
     constructor(
         public readonly label: string,
