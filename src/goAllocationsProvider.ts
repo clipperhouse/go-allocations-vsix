@@ -37,8 +37,12 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
 
         if (workspaceFolder) {
             const relativePath = path.relative(workspaceFolder.uri.fsPath, pkg.path);
-            // Only use relative path if it's different from the package name (i.e., in a subfolder)
-            return relativePath !== pkg.name ? relativePath : pkg.name;
+            // Use the package name when at the workspace root or when the
+            // relative path matches the package name; otherwise use the path.
+            if (relativePath === '' || relativePath === pkg.name) {
+                return pkg.name;
+            }
+            return relativePath;
         }
 
         return pkg.name;
@@ -437,7 +441,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
                                 const functionName = currentFunction.split('.').pop() || 'unknown';
 
                                 const allocationItem = new AllocationItem(
-                                    `Line ${lineNumber}: ${codeLine.trim()}`,
+                                    `${codeLine.trim()}`,
                                     vscode.TreeItemCollapsibleState.None,
                                     'allocationLine',
                                     currentFile,
@@ -602,6 +606,7 @@ export class AllocationItem extends vscode.TreeItem {
 
         const { bytes, objBytes, callCount, functionName } = this.allocationData;
         return [
+            'Click to view the source code line\n',
             `Function: ${functionName}`,
             `Flat allocation: ${bytes}`,
             `Cumulative allocation: ${objBytes}`,
