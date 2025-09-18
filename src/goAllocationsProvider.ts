@@ -168,13 +168,22 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
                 });
             }
 
+            // Always include instructional text at the top
+            const instructionalItem = new AllocationItem(
+                'Click a benchmark below to discover allocations',
+                vscode.TreeItemCollapsibleState.None,
+                'instructional'
+            );
+
             // Return currently discovered packages immediately (even if loading is still in progress)
-            return this.packages.map(pkg => new AllocationItem(
+            const packageItems = this.packages.map(pkg => new AllocationItem(
                 this.getPackageLabel(pkg),
                 vscode.TreeItemCollapsibleState.Expanded,
                 'package',
                 pkg.path
             ));
+
+            return [instructionalItem, ...packageItems];
         }
 
         switch (element.contextValue) {
@@ -575,6 +584,9 @@ export class AllocationItem extends vscode.TreeItem {
             case 'noAllocations':
                 this.iconPath = new vscode.ThemeIcon('info');
                 this.tooltip = 'No allocation data found for this benchmark';
+                break;
+            case 'instructional':
+                // this.iconPath = new vscode.ThemeIcon('info');
                 break;
             case 'error':
                 this.iconPath = new vscode.ThemeIcon('error');
