@@ -4,7 +4,7 @@ An extension that helps locate Go allocations, using your benchmarks.
 
 ## Screenshot
 
-<img src="https://raw.githubusercontent.com/clipperhouse/go-allocations-vsix/main/images/Screenshot1.png" width="480" alt="Go Allocations Explorer Screenshot">
+<img src="https://raw.githubusercontent.com/clipperhouse/go-allocations-vsix/main/images/Screenshot2.png" width="480" alt="Go Allocations Explorer Screenshot">
 
 ## Quick Start
 
@@ -19,7 +19,7 @@ An extension that helps locate Go allocations, using your benchmarks.
 
 ## Requirements
 
-- Go install
+- Go toolchain
 - VS Code 1.74.0 or later
 
 ## Status

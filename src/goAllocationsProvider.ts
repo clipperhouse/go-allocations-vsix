@@ -422,34 +422,36 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
 
                 // Check if we're in a function and this is a line with allocation data
                 if (inFunction && trimmedLine && !trimmedLine.includes('Total:') && !trimmedLine.includes('ROUTINE')) {
-                    // Parse line format: "flatBytes cumBytes lineNumber: code"
+                    // Parse line format: "flatBytes cumulativeBytes lineNumber: code"
                     // Example: "    2.50MB     5.50MB     36:	s := \"hello\" + strconv.Itoa(rand.Intn(1000))"
                     const lineMatch = trimmedLine.match(/^\s*(\d+(?:\.\d+)?[KMGT]?B)?\s*(\d+(?:\.\d+)?[KMGT]?B)?\s*(\d+):\s*(.+)$/);
                     if (lineMatch) {
                         const flatBytes = lineMatch[1] || '0B';
-                        const cumBytes = lineMatch[2] || '0B';
+                        const cumulativeBytes = lineMatch[2] || '0B';
                         const lineNumber = parseInt(lineMatch[3]);
                         const codeLine = lineMatch[4];
 
-                        if (lineNumber > 0 && (flatBytes !== '0B' || cumBytes !== '0B')) {
+                        if (lineNumber > 0 && (flatBytes !== '0B' || cumulativeBytes !== '0B')) {
                             // Only show allocations from user code, not runtime
                             const isUser = await this.isUserCode(currentFile, currentFunction);
                             if (isUser) {
                                 const functionName = currentFunction.split('.').pop() || 'unknown';
 
                                 const allocationItem = new AllocationItem(
-                                    `Line ${lineNumber}: ${codeLine.trim()} (${flatBytes} flat, ${cumBytes} cum)`,
+                                    `Line ${lineNumber}: ${codeLine.trim()}`,
                                     vscode.TreeItemCollapsibleState.None,
                                     'allocationLine',
                                     currentFile,
                                     lineNumber,
                                     {
                                         bytes: flatBytes,
-                                        objBytes: cumBytes,
+                                        objBytes: cumulativeBytes,
                                         callCount: 'N/A',
                                         functionName: functionName
                                     }
                                 );
+                                // Set the description to show bytes on a separate line
+                                allocationItem.description = `${flatBytes} flat, ${cumulativeBytes} cumulative`;
                                 allocationItems.push(allocationItem);
                             }
                         }
