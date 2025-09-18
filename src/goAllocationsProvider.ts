@@ -57,6 +57,36 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         // Don't fire tree refresh here - let the caller decide when to refresh
     }
 
+    /**
+     * Unified method to run a benchmark and get allocation data.
+     * Handles both tree expansion and play button scenarios.
+     */
+    async runBenchmark(benchmarkItem: AllocationItem, options: {
+        forceRefresh?: boolean;
+        abortSignal?: AbortSignal;
+        showProgress?: boolean;
+    } = {}): Promise<AllocationItem[]> {
+        const { forceRefresh = false, abortSignal, showProgress = false } = options;
+
+        if (forceRefresh) {
+            const benchmarkKey = `${benchmarkItem.filePath}:${benchmarkItem.label}`;
+            this.clearBenchmarkRunState(benchmarkKey);
+        }
+
+        if (showProgress) {
+            vscode.window.showInformationMessage(`Running benchmark: ${benchmarkItem.label}`);
+        }
+
+        const result = await this.getAllocationData(benchmarkItem, abortSignal);
+
+        if (showProgress) {
+            this._onDidChangeTreeData.fire(benchmarkItem);
+            vscode.window.showInformationMessage(`Benchmark ${benchmarkItem.label} completed!`);
+        }
+
+        return result;
+    }
+
 
     getTreeItem(element: AllocationItem): vscode.TreeItem {
         // For benchmark functions, check if they have been run and update accordingly
@@ -167,7 +197,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         } else if (element.contextValue === 'benchmarkFunction') {
             // Show allocation data for the function
             console.log('Getting allocation data for:', element.label);
-            return this.getAllocationData(element, abortSignal);
+            return this.runBenchmark(element, { abortSignal });
         }
 
         console.log('No matching context value, returning empty array');

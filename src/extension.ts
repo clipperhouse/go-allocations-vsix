@@ -256,21 +256,12 @@ export function activate(context: vscode.ExtensionContext) {
         const abortSignal = currentAbortController.signal;
 
         try {
-            vscode.window.showInformationMessage(`Running benchmark: ${benchmarkItem.label}`);
-
-            // Clear the benchmark from the run set so it can be re-run
-            const benchmarkKey = `${benchmarkItem.filePath}:${benchmarkItem.label}`;
-            provider.clearBenchmarkRunState(benchmarkKey);
-
-            // Directly call getAllocationData to run the benchmark synchronously
-            // This ensures we wait for actual completion before showing success
-            const allocationData = await provider.getAllocationData(benchmarkItem, abortSignal);
-
-            if (!abortSignal.aborted) {
-                // Update the tree to show the results
-                provider._onDidChangeTreeData.fire(benchmarkItem);
-                vscode.window.showInformationMessage(`Benchmark ${benchmarkItem.label} completed!`);
-            }
+            // Use the unified runBenchmark method with force refresh and progress messages
+            await provider.runBenchmark(benchmarkItem, {
+                forceRefresh: true,
+                abortSignal,
+                showProgress: true
+            });
         } catch (error) {
             if (abortSignal?.aborted) {
                 console.log('Benchmark operation cancelled');
