@@ -70,18 +70,6 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
 
 
     getTreeItem(element: AllocationItem): vscode.TreeItem {
-        // For benchmark functions, check if they have been run and update accordingly
-        if (element.contextValue === 'benchmarkFunction') {
-            if (element.hasBeenRun && element.collapsibleState === vscode.TreeItemCollapsibleState.Collapsed) {
-                // Update tooltip and add command for re-running
-                element.tooltip = `Click to re-run ${element.label} and discover allocations`;
-                element.command = {
-                    command: 'goAllocations.runSingleBenchmark',
-                    title: 'Re-run benchmark',
-                    arguments: [element]
-                };
-            }
-        }
         return element;
     }
 
