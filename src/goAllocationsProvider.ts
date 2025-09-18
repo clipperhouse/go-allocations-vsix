@@ -29,6 +29,21 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         this.initializeGoEnvironment();
     }
 
+    private getPackageLabel(pkg: { name: string; path: string; benchmarks: string[] }): string {
+        // Get the workspace folder that contains this package
+        const workspaceFolder = vscode.workspace.workspaceFolders?.find(folder =>
+            pkg.path.startsWith(folder.uri.fsPath)
+        );
+
+        if (workspaceFolder) {
+            const relativePath = path.relative(workspaceFolder.uri.fsPath, pkg.path);
+            // Only use relative path if it's different from the package name (i.e., in a subfolder)
+            return relativePath !== pkg.name ? relativePath : pkg.name;
+        }
+
+        return pkg.name;
+    }
+
     private async initializeGoEnvironment(): Promise<void> {
         try {
             // Get Go environment variables once and cache them
@@ -117,7 +132,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
                     const parentPackage = this.packages.find(pkg => pkg.path === element.filePath);
                     if (parentPackage) {
                         return new AllocationItem(
-                            parentPackage.name,
+                            this.getPackageLabel(parentPackage),
                             vscode.TreeItemCollapsibleState.Expanded,
                             'package',
                             parentPackage.path
@@ -146,7 +161,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
             // If loaded, return packages
             if (this.packagesLoaded) {
                 return this.packages.map(pkg => new AllocationItem(
-                    pkg.name,
+                    this.getPackageLabel(pkg),
                     vscode.TreeItemCollapsibleState.Expanded,
                     'package',
                     pkg.path
@@ -172,7 +187,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
 
             // Return packages after loading is complete
             return this.packages.map(pkg => new AllocationItem(
-                pkg.name,
+                this.getPackageLabel(pkg),
                 vscode.TreeItemCollapsibleState.Expanded,
                 'package',
                 pkg.path
