@@ -570,7 +570,7 @@ export class AllocationItem extends vscode.TreeItem {
                 }
                 break;
             case 'allocationLine':
-                this.iconPath = new vscode.ThemeIcon('symbol-field');
+                this.iconPath = vscode.Uri.joinPath(vscode.Uri.file(__dirname), '..', 'images', 'memory.goblue.64.png');
                 this.tooltip = this.buildAllocationTooltip();
                 // No command - click will be handled by tree view selection event
                 break;

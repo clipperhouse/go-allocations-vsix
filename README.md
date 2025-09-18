@@ -2,9 +2,7 @@
 
 An extension that helps locate Go allocations, using your benchmarks.
 
-## Screenshot
-
-<img src="https://raw.githubusercontent.com/clipperhouse/go-allocations-vsix/main/images/Screenshot2.png" width="480" alt="Go Allocations Explorer Screenshot">
+<img src="https://raw.githubusercontent.com/clipperhouse/go-allocations-vsix/main/images/Screenshot2.png" width="600" alt="Go Allocations Explorer Screenshot">
 
 ## Quick Start
 
@@ -24,14 +22,13 @@ An extension that helps locate Go allocations, using your benchmarks.
 
 ## Status
 
-- This is a basic, initial release.
+- Early release, feedback welcome.
 - Works on my machine™ with a typical Go codebase.
 - You will almost certainly find rough edges, let me know.
 
 ## Support
 
 - **Issues**: [GitHub Issues](https://github.com/clipperhouse/go-allocations-vsix/issues)
-- **Repository**: [GitHub Repository](https://github.com/clipperhouse/go-allocations-vsix)
 - **𝕏**: [@clipperhouse](https://x.com/clipperhouse)
 
 ## License
