@@ -256,12 +256,15 @@ export function activate(context: vscode.ExtensionContext) {
         const abortSignal = currentAbortController.signal;
 
         try {
-            // Use the unified runBenchmark method with force refresh and progress messages
-            await provider.runBenchmark(benchmarkItem, {
-                forceRefresh: true,
-                abortSignal,
-                showProgress: true
-            });
+            // Clear the benchmark run state and delete existing children
+            const benchmarkKey = `${benchmarkItem.filePath}:${benchmarkItem.label}`;
+            provider.clearBenchmarkRunState(benchmarkKey, benchmarkItem);
+
+            // Show progress message
+            vscode.window.showInformationMessage(`Running benchmark: ${benchmarkItem.label}`);
+
+            // Expand the node to trigger getChildren and run the benchmark
+            await treeView.reveal(benchmarkItem, { expand: true });
         } catch (error) {
             if (abortSignal?.aborted) {
                 console.log('Benchmark operation cancelled');

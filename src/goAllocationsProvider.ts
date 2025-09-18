@@ -52,38 +52,22 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
     }
 
 
-    clearBenchmarkRunState(benchmarkKey: string): void {
+    clearBenchmarkRunState(benchmarkKey: string, benchmarkItem?: AllocationItem): void {
         this.runBenchmarks.delete(benchmarkKey);
-        // Don't fire tree refresh here - let the caller decide when to refresh
+        // Fire tree refresh for the specific item to clear its children cache
+        if (benchmarkItem) {
+            this._onDidChangeTreeData.fire(benchmarkItem);
+        } else {
+            this._onDidChangeTreeData.fire();
+        }
     }
 
     /**
-     * Unified method to run a benchmark and get allocation data.
-     * Handles both tree expansion and play button scenarios.
+     * Method to run a benchmark and get allocation data.
+     * Used internally by getChildren when expanding benchmark function nodes.
      */
-    async runBenchmark(benchmarkItem: AllocationItem, options: {
-        forceRefresh?: boolean;
-        abortSignal?: AbortSignal;
-        showProgress?: boolean;
-    } = {}): Promise<AllocationItem[]> {
-        const { forceRefresh = false, abortSignal, showProgress = false } = options;
-
-        if (forceRefresh) {
-            const benchmarkKey = `${benchmarkItem.filePath}:${benchmarkItem.label}`;
-            this.clearBenchmarkRunState(benchmarkKey);
-        }
-
-        if (showProgress) {
-            vscode.window.showInformationMessage(`Running benchmark: ${benchmarkItem.label}`);
-        }
-
+    async runBenchmark(benchmarkItem: AllocationItem, abortSignal?: AbortSignal): Promise<AllocationItem[]> {
         const result = await this.getAllocationData(benchmarkItem, abortSignal);
-
-        if (showProgress) {
-            this._onDidChangeTreeData.fire(benchmarkItem);
-            vscode.window.showInformationMessage(`Benchmark ${benchmarkItem.label} completed!`);
-        }
-
         return result;
     }
 
@@ -197,7 +181,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         } else if (element.contextValue === 'benchmarkFunction') {
             // Show allocation data for the function
             console.log('Getting allocation data for:', element.label);
-            return this.runBenchmark(element, { abortSignal });
+            return this.runBenchmark(element, abortSignal);
         }
 
         console.log('No matching context value, returning empty array');
