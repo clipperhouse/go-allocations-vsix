@@ -3,7 +3,7 @@
     "displayName": "Go Allocations Explorer",
     "description": "An extension that helps locate Go allocations, using your benchmarks.",
     "icon": "images/memory.goblue.png",
-    "version": "0.1.2",
+    "version": "0.2.0",
     "publisher": "Clipperhouse",
     "engines": {
         "vscode": "^1.74.0"
