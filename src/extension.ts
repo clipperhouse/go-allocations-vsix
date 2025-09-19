@@ -2,9 +2,6 @@ import * as vscode from 'vscode';
 import { GoAllocationsProvider, AllocationItem } from './goAllocationsProvider';
 
 export function activate(context: vscode.ExtensionContext) {
-    vscode.window.showInformationMessage('Go Allocations extension activated!');
-
-    // Create the provider
     const provider = new GoAllocationsProvider();
 
     // Global cancellation controller for stopping benchmarks
@@ -57,8 +54,6 @@ export function activate(context: vscode.ExtensionContext) {
         // Create new abort controller for this operation
         currentAbortController = new AbortController();
         const abortSignal = currentAbortController.signal;
-
-        vscode.window.showInformationMessage('Starting to run all benchmarks...');
 
         try {
             if (treeView) {
@@ -177,9 +172,7 @@ export function activate(context: vscode.ExtensionContext) {
 
                 await processBenchmarks();
 
-                if (!abortSignal.aborted) {
-                    vscode.window.showInformationMessage('All benchmarks completed and allocations discovered!');
-                } else {
+                if (abortSignal.aborted) {
                     vscode.window.showInformationMessage('Benchmark operation cancelled');
                 }
             } else {
@@ -203,7 +196,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (currentAbortController) {
             console.log('Aborting current benchmark operation...');
             currentAbortController.abort();
-            vscode.window.showInformationMessage('Stopping all benchmarks... Note: Running Go processes may take a moment to terminate.');
+            vscode.window.showInformationMessage('Stopping all benchmarks. Go processes may take a moment to terminate.');
         } else {
             vscode.window.showInformationMessage('No benchmarks currently running');
         }
@@ -232,10 +225,6 @@ export function activate(context: vscode.ExtensionContext) {
         try {
             // Clear the benchmark run state and delete existing children
             provider.clearBenchmarkRunState(benchmarkItem);
-
-            // Show progress message
-            vscode.window.showInformationMessage(`Running benchmark: ${benchmarkItem.label}`);
-
             // Expand the node to trigger getChildren and run the benchmark
             await treeView.reveal(benchmarkItem, { expand: true });
         } catch (error) {
@@ -260,8 +249,6 @@ export function activate(context: vscode.ExtensionContext) {
 
         // Refresh the provider
         provider.refresh();
-
-        vscode.window.showInformationMessage('Go Allocations tree view refreshed');
     });
 
     context.subscriptions.push(runAllBenchmarksCommand, stopAllBenchmarksCommand, runSingleBenchmarkCommand, refreshCommand, openFileCommand);
