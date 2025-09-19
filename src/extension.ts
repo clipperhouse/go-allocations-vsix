@@ -2,8 +2,6 @@ import * as vscode from 'vscode';
 import { GoAllocationsProvider, AllocationItem } from './goAllocationsProvider';
 
 export function activate(context: vscode.ExtensionContext) {
-    console.log('Go Allocations extension is now active!');
-    console.log('Workspace folders:', vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath));
     vscode.window.showInformationMessage('Go Allocations extension activated!');
 
     // Create the provider
@@ -13,7 +11,6 @@ export function activate(context: vscode.ExtensionContext) {
     let currentAbortController: AbortController | null = null;
 
     // Register the tree data provider
-    console.log('Creating tree view...');
     let treeView: vscode.TreeView<AllocationItem> | undefined;
     try {
         treeView = vscode.window.createTreeView('goAllocationsExplorer', {
@@ -21,11 +18,8 @@ export function activate(context: vscode.ExtensionContext) {
             showCollapseAll: true
         });
 
-        console.log('Tree view created successfully:', treeView);
-
         // Add the tree view to subscriptions
         context.subscriptions.push(treeView);
-        console.log('Tree view added to subscriptions');
 
         // Handle clicks on allocation lines
         treeView.onDidChangeSelection(async (e) => {
@@ -55,8 +49,6 @@ export function activate(context: vscode.ExtensionContext) {
 
 
     const runAllBenchmarksCommand = vscode.commands.registerCommand('goAllocations.runAllBenchmarks', async () => {
-        console.log('runAllBenchmarks command called!');
-
         // Cancel any existing operation
         if (currentAbortController) {
             currentAbortController.abort();
@@ -70,38 +62,28 @@ export function activate(context: vscode.ExtensionContext) {
 
         try {
             if (treeView) {
-                console.log('Tree view is available, proceeding...');
-
                 // Check if cancelled before starting
                 if (abortSignal.aborted) {
-                    console.log('Operation cancelled before starting');
                     return;
                 }
 
-                console.log('Packages loaded, getting root items...');
-
                 // Get all root items (packages)
                 const rootItems = await provider.getChildren();
-                console.log('Found root items:', rootItems.length);
 
                 // Collect all benchmark functions first
                 const allBenchmarks: { packageItem: AllocationItem; benchmarkFunction: AllocationItem }[] = [];
 
                 for (const packageItem of rootItems) {
                     if (abortSignal.aborted) {
-                        console.log('Operation cancelled during package processing');
                         return;
                     }
 
                     if (packageItem.contextValue === 'package') {
-                        console.log('Processing package:', packageItem.label);
-
                         // Expand the package node
                         await treeView.reveal(packageItem, { expand: true });
 
                         // Get benchmark functions for this package
                         const benchmarkFunctions = await provider.getChildren(packageItem);
-                        console.log('Found benchmark functions:', benchmarkFunctions.length);
 
                         // Collect all benchmark functions
                         for (const benchmarkFunction of benchmarkFunctions) {
@@ -112,8 +94,6 @@ export function activate(context: vscode.ExtensionContext) {
                     }
                 }
 
-                console.log(`Found ${allBenchmarks.length} total benchmarks to run`);
-
                 // Simple semaphore: run 4 benchmarks concurrently
                 const concurrency = 4;
                 const semaphore = new Array(concurrency).fill(null);
@@ -123,8 +103,6 @@ export function activate(context: vscode.ExtensionContext) {
                     if (abortSignal.aborted) {
                         throw new Error('Operation cancelled');
                     }
-
-                    console.log('Processing benchmark:', benchmark.benchmarkFunction.label);
 
                     // Expand the benchmark function node
                     if (treeView) {
@@ -222,8 +200,6 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     const stopAllBenchmarksCommand = vscode.commands.registerCommand('goAllocations.stopAllBenchmarks', () => {
-        console.log('stopAllBenchmarks command called!');
-
         if (currentAbortController) {
             console.log('Aborting current benchmark operation...');
             currentAbortController.abort();
@@ -234,8 +210,6 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     const runSingleBenchmarkCommand = vscode.commands.registerCommand('goAllocations.runSingleBenchmark', async (benchmarkItem: AllocationItem) => {
-        console.log('runSingleBenchmark command called for:', benchmarkItem.label);
-
         if (!benchmarkItem || benchmarkItem.contextValue !== 'benchmarkFunction') {
             vscode.window.showErrorMessage('Invalid benchmark item');
             return;
@@ -278,8 +252,6 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     const refreshCommand = vscode.commands.registerCommand('goAllocations.refresh', () => {
-        console.log('refresh command called!');
-
         // Cancel any existing operations first
         if (currentAbortController) {
             currentAbortController.abort();

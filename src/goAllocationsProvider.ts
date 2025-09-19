@@ -23,8 +23,6 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
     private goEnvInitialized = false;
 
     constructor() {
-        console.log('GoAllocationsProvider constructor called');
-        console.log('Workspace folders in constructor:', vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath));
         // Initialize Go environment variables
         this.initializeGoEnvironment();
     }
@@ -57,8 +55,6 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
             this.goRoot = goroot.trim();
             this.goMod = gomod.trim();
             this.goEnvInitialized = true;
-
-            console.log('Go environment initialized:', { goRoot: this.goRoot, goMod: this.goMod });
         } catch (error) {
             console.error('Error initializing Go environment:', error);
             // Set fallback values
@@ -83,8 +79,6 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
      * This destroys the existing tree view and builds a new one, just like on initial load.
      */
     refresh(): void {
-        console.log('Refreshing Go Allocations tree view...');
-
         // Reset all cache state
         this.packages = [];
         this.packagesLoaded = false;
@@ -98,8 +92,6 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
 
         // Fire tree data change event to refresh the view
         this._onDidChangeTreeData.fire();
-
-        console.log('Tree view refresh completed');
     }
 
     /**
@@ -110,7 +102,6 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         const result = await this.getAllocationData(benchmarkItem, abortSignal);
         return result;
     }
-
 
     getTreeItem(element: AllocationItem): vscode.TreeItem {
         return element;
@@ -156,12 +147,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
 
 
     async getChildren(element?: AllocationItem, abortSignal?: AbortSignal): Promise<AllocationItem[]> {
-        console.log('getChildren called with element:', element ? element.label : 'root');
-
         if (!element) {
-            // Root level - show all packages with benchmarks
-            console.log('Getting root level children (packages)');
-
             // If not loaded and not in progress, start loading
             if (!this.discoveryInProgress && !this.packagesLoaded) {
                 this.discoveryInProgress = true;
@@ -192,25 +178,17 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
 
         switch (element.contextValue) {
             case 'package':
-                // Show benchmark functions in this package
-                console.log('Getting benchmark functions for package:', element.label);
                 return this.getBenchmarkFunctions(element);
             case 'benchmarkFunction':
-                // Show allocation data for the function
-                console.log('Getting allocation data for:', element.label);
                 const allocationData = await this.runBenchmark(element, abortSignal);
-                // Mark this benchmark as run since we're returning allocation data
                 element.hasBeenRun = true;
                 return allocationData;
             default:
-                console.log('No matching context value, returning empty array');
                 return Promise.resolve([]);
         }
     }
 
     private async loadPackages(): Promise<void> {
-        console.log('Starting package discovery...');
-
         if (!vscode.workspace.workspaceFolders) {
             this.packagesLoaded = true;
             this.discoveryInProgress = false;
@@ -221,17 +199,14 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         try {
             for (const workspaceFolder of vscode.workspace.workspaceFolders) {
                 try {
-                    console.log('Processing workspace folder:', workspaceFolder.uri.fsPath);
                     await this.loadPackagesFromWorkspace(workspaceFolder.uri.fsPath);
                 } catch (error) {
                     console.error('Error processing workspace folder:', error);
                 }
             }
         } finally {
-            console.log('Package discovery complete. Found', this.packages.length, 'packages');
             this.packagesLoaded = true;
             this.discoveryInProgress = false;
-            // Final tree update to ensure everything is rendered
             this._onDidChangeTreeData.fire();
         }
     }
@@ -273,7 +248,6 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
                         // Add package with its benchmarks
                         const pkg = { name: packageName, path: packageDir, benchmarks };
                         this.packages.push(pkg);
-                        console.log(`Discovered package: ${packageName} with ${benchmarks.length} benchmarks`);
 
                         // Fire tree data change event to render this package immediately
                         this._onDidChangeTreeData.fire();
@@ -391,6 +365,14 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         }
     }
 
+    // Display helper: last path segment after '/', then after first '.'
+    private shortFunctionName = (fullName: string): string => {
+        const slash = fullName.lastIndexOf('/');
+        const afterSlash = slash >= 0 ? fullName.slice(slash + 1) : fullName;
+        const firstDot = afterSlash.indexOf('.');
+        return firstDot >= 0 ? afterSlash.slice(firstDot + 1) : afterSlash;
+    };
+
     private async parseMemoryProfile(memprofilePath: string, packagePath: string, abortSignal?: AbortSignal): Promise<AllocationItem[]> {
         try {
             // Check if operation was cancelled before parsing
@@ -415,7 +397,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
                 const trimmedLine = line.trim();
 
                 // Check if this is a function header
-                const functionMatch = trimmedLine.match(/ROUTINE =+ (.+) in (.+)/);
+                const functionMatch = trimmedLine.match(/^ROUTINE =+ (.+?) in (.+)$/);
                 if (functionMatch) {
                     currentFunction = functionMatch[1];
                     currentFile = functionMatch[2];
@@ -438,7 +420,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
                             // Only show allocations from user code, not runtime
                             const isUser = await this.isUserCode(currentFile, currentFunction);
                             if (isUser) {
-                                const functionName = currentFunction.split('.').pop() || 'unknown';
+                                const functionName = this.shortFunctionName(currentFunction);
 
                                 const allocationItem = new AllocationItem(
                                     `${codeLine.trim()}`,
@@ -447,9 +429,8 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
                                     currentFile,
                                     lineNumber,
                                     {
-                                        bytes: flatBytes,
-                                        objBytes: cumulativeBytes,
-                                        callCount: 'N/A',
+                                        flatBytes: flatBytes,
+                                        cumulativeBytes: cumulativeBytes,
                                         functionName: functionName
                                     }
                                 );
@@ -530,9 +511,8 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
 }
 
 export interface AllocationData {
-    bytes: string;
-    objBytes: string;
-    callCount: string;
+    flatBytes: string;
+    cumulativeBytes: string;
     functionName: string;
 }
 
@@ -604,13 +584,12 @@ export class AllocationItem extends vscode.TreeItem {
             return this.label;
         }
 
-        const { bytes, objBytes, callCount, functionName } = this.allocationData;
+        const { flatBytes, cumulativeBytes, functionName } = this.allocationData;
         return [
             'Click to view the source code line\n',
             `Function: ${functionName}`,
-            `Flat allocation: ${bytes}`,
-            `Cumulative allocation: ${objBytes}`,
-            callCount !== 'N/A' ? `Call count: ${callCount}` : '',
+            `Flat allocation: ${flatBytes}`,
+            `Cumulative allocation: ${cumulativeBytes}`,
             this.filePath && this.lineNumber ? `Location: ${path.basename(this.filePath)}:${this.lineNumber}` : ''
         ].filter(line => line).join('\n');
     }
