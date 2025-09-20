@@ -20,17 +20,22 @@ export function activate(context: vscode.ExtensionContext) {
 
         // Handle clicks on allocation lines
         treeView.onDidChangeSelection(async (e) => {
-            if (e.selection.length > 0) {
-                const selectedItem = e.selection[0];
-                if (selectedItem.contextValue === 'allocationLine' && selectedItem.filePath && selectedItem.lineNumber) {
-                    // Open file at line
-                    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(selectedItem.filePath));
-                    const editor = await vscode.window.showTextDocument(document);
-                    const position = new vscode.Position(selectedItem.lineNumber - 1, 0); // Convert to 0-based line number
-                    editor.selection = new vscode.Selection(position, position);
-                    editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
-                }
+            if (e.selection.length === 0) {
+                return;
             }
+
+            const selectedItem = e.selection[0];
+            const ok = selectedItem && selectedItem.contextValue === 'allocationLine' && selectedItem.filePath && selectedItem.lineNumber;
+            if (!ok) {
+                return;
+            }
+
+            // Open file at line
+            const document = await vscode.workspace.openTextDocument(vscode.Uri.file(selectedItem.filePath));
+            const editor = await vscode.window.showTextDocument(document);
+            const position = new vscode.Position(selectedItem.lineNumber - 1, 0); // Convert to 0-based line number
+            editor.selection = new vscode.Selection(position, position);
+            editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
         });
     } catch (error) {
         console.error('Error creating tree view:', error);
@@ -39,13 +44,22 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Register commands
     const openFileCommand = vscode.commands.registerCommand('goAllocations.openFile', (item) => {
-        if (item && item.filePath) {
-            vscode.window.showTextDocument(vscode.Uri.file(item.filePath));
+        const ok = item && item.filePath;
+        if (!ok) {
+            return;
         }
+
+        vscode.window.showTextDocument(vscode.Uri.file(item.filePath));
     });
 
 
     const runAllBenchmarksCommand = vscode.commands.registerCommand('goAllocations.runAllBenchmarks', async () => {
+        if (!treeView) {
+            console.error('Tree view not available');
+            vscode.window.showErrorMessage('Tree view not available');
+            return;
+        }
+
         // Cancel any existing operation
         if (currentAbortController) {
             currentAbortController.abort();
@@ -56,110 +70,103 @@ export function activate(context: vscode.ExtensionContext) {
         const abortSignal = currentAbortController.signal;
 
         try {
-            if (treeView) {
-                // Check if cancelled before starting
+            // Check if cancelled before starting
+            if (abortSignal.aborted) {
+                return;
+            }
+
+            // Get all root items (packages)
+            const rootItems = await provider.getChildren();
+
+            // Collect all benchmark functions first
+            const allBenchmarks: { packageItem: AllocationItem; benchmarkFunction: AllocationItem }[] = [];
+
+            for (const packageItem of rootItems) {
                 if (abortSignal.aborted) {
                     return;
                 }
 
-                // Get all root items (packages)
-                const rootItems = await provider.getChildren();
+                if (packageItem.contextValue === 'package') {
+                    // Expand the package node
+                    await treeView.reveal(packageItem, { expand: true });
 
-                // Collect all benchmark functions first
-                const allBenchmarks: { packageItem: AllocationItem; benchmarkFunction: AllocationItem }[] = [];
+                    // Get benchmark functions for this package
+                    const benchmarkFunctions = await provider.getChildren(packageItem);
 
-                for (const packageItem of rootItems) {
+                    // Collect all benchmark functions
+                    for (const benchmarkFunction of benchmarkFunctions) {
+                        if (benchmarkFunction.contextValue === 'benchmarkFunction') {
+                            allBenchmarks.push({ packageItem, benchmarkFunction });
+                        }
+                    }
+                }
+            }
+
+            // Simple semaphore: run 4 benchmarks concurrently
+            const concurrency = 4;
+            const semaphore = new Array(concurrency).fill(null);
+
+            const runBenchmark = async (benchmark: { packageItem: AllocationItem; benchmarkFunction: AllocationItem }) => {
+                // Check if cancelled before running this benchmark
+                if (abortSignal.aborted) {
+                    throw new Error('Operation cancelled');
+                }
+
+                // Expand the benchmark function node (treeView is guaranteed to exist at this point)
+                await treeView.reveal(benchmark.benchmarkFunction, { expand: true });
+
+                // Get allocation data for this benchmark (this will run the benchmark)
+                // Pass the abort signal to the provider
+                await provider.getChildren(benchmark.benchmarkFunction, abortSignal);
+            };
+
+            // Process benchmarks with concurrency control while preserving display order
+            const processBenchmarks = async () => {
+                const allPromises = allBenchmarks.map(async (benchmark) => {
+                    // Wait for a semaphore slot
+                    let acquired = false;
+                    while (!acquired && !abortSignal.aborted) {
+                        for (let i = 0; i < concurrency; i++) {
+                            if (semaphore[i] === null) {
+                                semaphore[i] = benchmark;
+                                acquired = true;
+                                break;
+                            }
+                        }
+                        if (!acquired) {
+                            await new Promise(resolve => setTimeout(resolve, 100));
+                        }
+                    }
+
                     if (abortSignal.aborted) {
                         return;
                     }
 
-                    if (packageItem.contextValue === 'package') {
-                        // Expand the package node
-                        await treeView.reveal(packageItem, { expand: true });
-
-                        // Get benchmark functions for this package
-                        const benchmarkFunctions = await provider.getChildren(packageItem);
-
-                        // Collect all benchmark functions
-                        for (const benchmarkFunction of benchmarkFunctions) {
-                            if (benchmarkFunction.contextValue === 'benchmarkFunction') {
-                                allBenchmarks.push({ packageItem, benchmarkFunction });
-                            }
-                        }
-                    }
-                }
-
-                // Simple semaphore: run 4 benchmarks concurrently
-                const concurrency = 4;
-                const semaphore = new Array(concurrency).fill(null);
-
-                const runBenchmark = async (benchmark: { packageItem: AllocationItem; benchmarkFunction: AllocationItem }) => {
-                    // Check if cancelled before running this benchmark
-                    if (abortSignal.aborted) {
-                        throw new Error('Operation cancelled');
-                    }
-
-                    // Expand the benchmark function node
-                    if (treeView) {
-                        await treeView.reveal(benchmark.benchmarkFunction, { expand: true });
-                    }
-
-                    // Get allocation data for this benchmark (this will run the benchmark)
-                    // Pass the abort signal to the provider
-                    await provider.getChildren(benchmark.benchmarkFunction, abortSignal);
-                };
-
-                // Process benchmarks with concurrency control while preserving display order
-                const processBenchmarks = async () => {
-                    const allPromises = allBenchmarks.map(async (benchmark) => {
-                        // Wait for a semaphore slot
-                        let acquired = false;
-                        while (!acquired && !abortSignal.aborted) {
-                            for (let i = 0; i < concurrency; i++) {
-                                if (semaphore[i] === null) {
-                                    semaphore[i] = benchmark;
-                                    acquired = true;
-                                    break;
-                                }
-                            }
-                            if (!acquired) {
-                                await new Promise(resolve => setTimeout(resolve, 100));
-                            }
-                        }
-
+                    try {
+                        await runBenchmark(benchmark);
+                    } catch (error) {
                         if (abortSignal.aborted) {
-                            return;
+                            console.log('Benchmark cancelled:', benchmark.benchmarkFunction.label);
+                        } else {
+                            console.error('Benchmark error:', error);
                         }
-
-                        try {
-                            await runBenchmark(benchmark);
-                        } catch (error) {
-                            if (abortSignal.aborted) {
-                                console.log('Benchmark cancelled:', benchmark.benchmarkFunction.label);
-                            } else {
-                                console.error('Benchmark error:', error);
-                            }
-                        } finally {
-                            // Release the semaphore slot
-                            const slotIndex = semaphore.indexOf(benchmark);
-                            if (slotIndex !== -1) {
-                                semaphore[slotIndex] = null;
-                            }
+                    } finally {
+                        // Release the semaphore slot
+                        const slotIndex = semaphore.indexOf(benchmark);
+                        if (slotIndex !== -1) {
+                            semaphore[slotIndex] = null;
                         }
-                    });
+                    }
+                });
 
-                    // Wait for all benchmarks to complete or be cancelled
-                    await Promise.allSettled(allPromises);
-                };
+                // Wait for all benchmarks to complete or be cancelled
+                await Promise.allSettled(allPromises);
+            };
 
-                await processBenchmarks();
+            await processBenchmarks();
 
-                if (abortSignal.aborted) {
-                    vscode.window.showInformationMessage('Benchmark operation cancelled');
-                }
-            } else {
-                console.error('Tree view not available');
-                vscode.window.showErrorMessage('Tree view not available');
+            if (abortSignal.aborted) {
+                vscode.window.showInformationMessage('Benchmark operation cancelled');
             }
         } catch (error) {
             if (abortSignal.aborted) {
@@ -185,7 +192,8 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     const runSingleBenchmarkCommand = vscode.commands.registerCommand('goAllocations.runSingleBenchmark', async (benchmarkItem: AllocationItem) => {
-        if (!benchmarkItem || benchmarkItem.contextValue !== 'benchmarkFunction') {
+        const ok = benchmarkItem && benchmarkItem.contextValue === 'benchmarkFunction';
+        if (!ok) {
             vscode.window.showErrorMessage('Invalid benchmark item');
             return;
         }
