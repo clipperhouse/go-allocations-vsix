@@ -102,11 +102,6 @@
                 "when": "view == goAllocationsExplorer"
             },
             {
-                "command": "goAllocations.openFile",
-                "title": "Open File",
-                "when": "view == goAllocationsExplorer && viewItem == benchmarkFile"
-            },
-            {
                 "command": "goAllocations.runSingleBenchmark",
                 "title": "Run benchmark",
                 "icon": "$(play)",
@@ -142,11 +137,6 @@
                 }
             ],
             "view/item/context": [
-                {
-                    "command": "goAllocations.openFile",
-                    "when": "view == goAllocationsExplorer && viewItem == benchmarkFile",
-                    "group": "inline"
-                },
                 {
                     "command": "goAllocations.runSingleBenchmark",
                     "when": "view == goAllocationsExplorer && viewItem == benchmarkFunction",

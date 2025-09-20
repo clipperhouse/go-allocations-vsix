@@ -43,16 +43,6 @@ export function activate(context: vscode.ExtensionContext) {
     }
 
     // Register commands
-    const openFileCommand = vscode.commands.registerCommand('goAllocations.openFile', (item) => {
-        const ok = item && item.filePath;
-        if (!ok) {
-            return;
-        }
-
-        vscode.window.showTextDocument(vscode.Uri.file(item.filePath));
-    });
-
-
     const runAllBenchmarksCommand = vscode.commands.registerCommand('goAllocations.runAllBenchmarks', async () => {
         if (!treeView) {
             console.error('Tree view not available');
@@ -241,7 +231,7 @@ export function activate(context: vscode.ExtensionContext) {
         provider.refresh();
     });
 
-    context.subscriptions.push(runAllBenchmarksCommand, stopAllBenchmarksCommand, runSingleBenchmarkCommand, refreshCommand, openFileCommand);
+    context.subscriptions.push(runAllBenchmarksCommand, stopAllBenchmarksCommand, runSingleBenchmarkCommand, refreshCommand);
 }
 
 export function deactivate() { }
