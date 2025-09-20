@@ -16,15 +16,23 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
     private packagesLoaded = false;
     private discoveryInProgress = false;
 
-
     // Cache for Go environment variables to avoid shelling out on every isUserCode call
     private goRoot: string | null = null;
     private goMod: string | null = null;
     private goEnvInitialized = false;
 
     constructor() {
-        // Initialize Go environment variables
         this.initializeGoEnvironment();
+    }
+
+    private abortController: AbortController = new AbortController();
+    abortSignal(): AbortSignal {
+        return this.abortController.signal;
+    }
+
+    cancelAll(): void {
+        this.abortController.abort();
+        this.abortController = new AbortController();
     }
 
     private getPackageLabel(pkg: { name: string; path: string; benchmarks: string[] }): string {
@@ -47,15 +55,21 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
     }
 
     private async initializeGoEnvironment(): Promise<void> {
+        const signal = this.abortSignal();
+
         try {
             // Get Go environment variables once and cache them
-            const { stdout: goroot } = await execAsync('go env GOROOT');
-            const { stdout: gomod } = await execAsync('go env GOMOD');
+            const { stdout: goroot } = await execAsync('go env GOROOT', { signal: signal });
+            const { stdout: gomod } = await execAsync('go env GOMOD', { signal: signal });
 
             this.goRoot = goroot.trim();
             this.goMod = gomod.trim();
             this.goEnvInitialized = true;
         } catch (error) {
+            if (signal.aborted) {
+                console.log('Go environment initialization cancelled');
+                return;
+            }
             console.error('Error initializing Go environment:', error);
             // Set fallback values
             this.goRoot = null;
@@ -63,7 +77,6 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
             this.goEnvInitialized = true;
         }
     }
-
 
     clearBenchmarkRunState(benchmarkItem?: AllocationItem): void {
         if (benchmarkItem) {
@@ -98,8 +111,8 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
      * Method to run a benchmark and get allocation data.
      * Used internally by getChildren when expanding benchmark function nodes.
      */
-    async runBenchmark(benchmarkItem: AllocationItem, abortSignal?: AbortSignal): Promise<AllocationItem[]> {
-        const result = await this.getAllocationData(benchmarkItem, abortSignal);
+    async runBenchmark(benchmarkItem: AllocationItem): Promise<AllocationItem[]> {
+        const result = await this.getAllocationData(benchmarkItem);
         return result;
     }
 
@@ -146,7 +159,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
     }
 
 
-    async getChildren(element?: AllocationItem, abortSignal?: AbortSignal): Promise<AllocationItem[]> {
+    async getChildren(element?: AllocationItem): Promise<AllocationItem[]> {
         if (!element) {
             // If not loaded and not in progress, start loading
             if (!this.discoveryInProgress && !this.packagesLoaded) {
@@ -180,7 +193,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
             case 'package':
                 return this.getBenchmarkFunctions(element);
             case 'benchmarkFunction':
-                const allocationData = await this.runBenchmark(element, abortSignal);
+                const allocationData = await this.runBenchmark(element);
                 element.hasBeenRun = true;
                 return allocationData;
             default:
@@ -189,6 +202,8 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
     }
 
     private async loadPackages(): Promise<void> {
+        const signal = this.abortSignal();
+
         if (!vscode.workspace.workspaceFolders) {
             this.packagesLoaded = true;
             this.discoveryInProgress = false;
@@ -198,11 +213,23 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
 
         try {
             for (const workspaceFolder of vscode.workspace.workspaceFolders) {
+                if (signal.aborted) {
+                    throw new Error('Operation cancelled');
+                }
+
                 try {
                     await this.loadPackagesFromWorkspace(workspaceFolder.uri.fsPath);
                 } catch (error) {
+                    if (signal.aborted) {
+                        throw error;
+                    }
                     console.error('Error processing workspace folder:', error);
                 }
+            }
+        } catch (error) {
+            if (signal.aborted) {
+                console.log('Package loading cancelled');
+                throw error;
             }
         } finally {
             this.packagesLoaded = true;
@@ -212,13 +239,26 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
     }
 
     private async loadPackagesFromWorkspace(rootPath: string): Promise<void> {
+        const signal = this.abortSignal();
+
         try {
+            if (signal.aborted) {
+                throw new Error('Operation cancelled');
+            }
+
             // Get all packages first
-            const { stdout: packagesOutput } = await execAsync('go list -f "{{.Name}} {{.Dir}}" ./...', { cwd: rootPath });
+            const { stdout: packagesOutput } = await execAsync('go list -f "{{.Name}} {{.Dir}}" ./...', {
+                cwd: rootPath,
+                signal: signal
+            });
             const packageLines = packagesOutput.trim().split('\n');
 
             // Process each package and discover benchmarks, updating tree after each discovery
             for (let line of packageLines) {
+                if (signal.aborted) {
+                    throw new Error('Operation cancelled');
+                }
+
                 line = line.trim();
                 if (!line) {
                     continue;
@@ -236,7 +276,10 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
                     // Get benchmark functions for this package
                     const { stdout: benchmarksOutput } = await execAsync(
                         'go test -list="^Benchmark[A-Z][^/]*$"',
-                        { cwd: packageDir }
+                        {
+                            cwd: packageDir,
+                            signal: signal
+                        }
                     );
 
                     const benchmarkLines = benchmarksOutput.trim().split('\n');
@@ -245,6 +288,10 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
                         .map(line => line.trim());
 
                     if (benchmarks.length > 0) {
+                        if (signal.aborted) {
+                            throw new Error('Operation cancelled');
+                        }
+
                         // Add package with its benchmarks
                         const pkg = { name: packageName, path: packageDir, benchmarks };
                         this.packages.push(pkg);
@@ -253,11 +300,18 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
                         this._onDidChangeTreeData.fire();
                     }
                 } catch (packageError) {
+                    if (signal.aborted) {
+                        throw packageError;
+                    }
                     // Skip packages that can't be tested (e.g., no test files)
                     console.warn(`Could not test package ${packageName}:`, packageError);
                 }
             }
         } catch (error) {
+            if (signal.aborted) {
+                console.log('Package discovery cancelled');
+                throw error;
+            }
             console.error('Error loading packages from workspace:', error);
             throw error;
         }
@@ -305,14 +359,16 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         return benchmarkFunctions;
     }
 
-    async getAllocationData(functionItem: AllocationItem, abortSignal?: AbortSignal): Promise<AllocationItem[]> {
+    async getAllocationData(functionItem: AllocationItem): Promise<AllocationItem[]> {
+        const signal = this.abortSignal();
+
         if (!functionItem.filePath) {
             return [];
         }
 
         try {
             // Check if operation is cancelled before starting
-            if (abortSignal?.aborted) {
+            if (signal.aborted) {
                 throw new Error('Operation cancelled');
             }
 
@@ -328,7 +384,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
                     `go test -bench=^${benchmarkName}$ -memprofile=${memprofilePath} -run=^$ -gcflags="all=-N -l"`,
                     {
                         cwd: functionItem.filePath,
-                        signal: abortSignal
+                        signal: signal
                     }
                 );
 
@@ -337,12 +393,12 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
                 }
 
                 // Check if operation was cancelled after benchmark completion
-                if (abortSignal?.aborted) {
+                if (signal.aborted) {
                     throw new Error('Operation cancelled');
                 }
 
                 // Parse the memory profile using pprof
-                const allocationData = await this.parseMemoryProfile(memprofilePath, functionItem.filePath, abortSignal);
+                const allocationData = await this.parseMemoryProfile(memprofilePath, functionItem.filePath);
 
                 return allocationData;
             } finally {
@@ -373,17 +429,19 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         return firstDot >= 0 ? afterSlash.slice(firstDot + 1) : afterSlash;
     };
 
-    private async parseMemoryProfile(memprofilePath: string, packagePath: string, abortSignal?: AbortSignal): Promise<AllocationItem[]> {
+    private async parseMemoryProfile(memprofilePath: string, packagePath: string): Promise<AllocationItem[]> {
+        const signal = this.abortSignal();
+
         try {
             // Check if operation was cancelled before parsing
-            if (abortSignal?.aborted) {
+            if (signal.aborted) {
                 throw new Error('Operation cancelled');
             }
 
             // Get the list of functions to find the main allocation function
             const { stdout: listOutput } = await execAsync(`go tool pprof -list=. ${memprofilePath}`, {
                 cwd: packagePath,
-                signal: abortSignal
+                signal: signal
             });
 
             const allocationItems: AllocationItem[] = [];

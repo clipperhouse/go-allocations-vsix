@@ -4,64 +4,43 @@ import { GoAllocationsProvider, AllocationItem } from './goAllocationsProvider';
 export function activate(context: vscode.ExtensionContext) {
     const provider = new GoAllocationsProvider();
 
-    // Global cancellation controller for stopping benchmarks
-    let currentAbortController: AbortController | null = null;
-
-    // Register the tree data provider
-    let treeView: vscode.TreeView<AllocationItem> | undefined;
-    try {
-        treeView = vscode.window.createTreeView('goAllocationsExplorer', {
-            treeDataProvider: provider,
-            showCollapseAll: true
-        });
-
-        // Add the tree view to subscriptions
-        context.subscriptions.push(treeView);
-
-        // Handle clicks on allocation lines
-        treeView.onDidChangeSelection(async (e) => {
-            if (e.selection.length === 0) {
-                return;
-            }
-
-            const selectedItem = e.selection[0];
-            const ok = selectedItem && selectedItem.contextValue === 'allocationLine' && selectedItem.filePath && selectedItem.lineNumber;
-            if (!ok) {
-                return;
-            }
-
-            // Open file at line
-            const document = await vscode.workspace.openTextDocument(vscode.Uri.file(selectedItem.filePath));
-            const editor = await vscode.window.showTextDocument(document);
-            const position = new vscode.Position(selectedItem.lineNumber - 1, 0); // Convert to 0-based line number
-            editor.selection = new vscode.Selection(position, position);
-            editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
-        });
-    } catch (error) {
-        console.error('Error creating tree view:', error);
-        vscode.window.showErrorMessage('Error creating tree view: ' + (error as Error).message);
+    let options: vscode.TreeViewOptions<AllocationItem> = {
+        treeDataProvider: provider,
+        showCollapseAll: true
     }
+    let treeView = vscode.window.createTreeView<AllocationItem>('goAllocationsExplorer', options);
+    context.subscriptions.push(treeView);
 
-    // Register commands
-    const runAllBenchmarksCommand = vscode.commands.registerCommand('goAllocations.runAllBenchmarks', async () => {
-        if (!treeView) {
-            console.error('Tree view not available');
-            vscode.window.showErrorMessage('Tree view not available');
+    // Handle clicks on allocation lines
+    treeView.onDidChangeSelection(async (e) => {
+        if (e.selection.length === 0) {
             return;
         }
 
-        // Cancel any existing operation
-        if (currentAbortController) {
-            currentAbortController.abort();
+        const selectedItem = e.selection[0];
+        const ok = selectedItem.contextValue === 'allocationLine'
+            && selectedItem.filePath
+            && selectedItem.lineNumber;
+
+        if (!ok) {
+            return;
         }
 
-        // Create new abort controller for this operation
-        currentAbortController = new AbortController();
-        const abortSignal = currentAbortController.signal;
+        // Open file at line
+        const document = await vscode.workspace.openTextDocument(vscode.Uri.file(selectedItem.filePath));
+        const editor = await vscode.window.showTextDocument(document);
+        const position = new vscode.Position(selectedItem.lineNumber - 1, 0); // Convert to 0-based line number
+        editor.selection = new vscode.Selection(position, position);
+        editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+    });
+
+    // Register commands
+    const runAllBenchmarksCommand = vscode.commands.registerCommand('goAllocations.runAllBenchmarks', async () => {
+        const signal = provider.abortSignal();
 
         try {
             // Check if cancelled before starting
-            if (abortSignal.aborted) {
+            if (signal.aborted) {
                 return;
             }
 
@@ -72,7 +51,7 @@ export function activate(context: vscode.ExtensionContext) {
             const allBenchmarks: { packageItem: AllocationItem; benchmarkFunction: AllocationItem }[] = [];
 
             for (const packageItem of rootItems) {
-                if (abortSignal.aborted) {
+                if (signal.aborted) {
                     return;
                 }
 
@@ -98,7 +77,7 @@ export function activate(context: vscode.ExtensionContext) {
 
             const runBenchmark = async (benchmark: { packageItem: AllocationItem; benchmarkFunction: AllocationItem }) => {
                 // Check if cancelled before running this benchmark
-                if (abortSignal.aborted) {
+                if (signal.aborted) {
                     throw new Error('Operation cancelled');
                 }
 
@@ -107,7 +86,7 @@ export function activate(context: vscode.ExtensionContext) {
 
                 // Get allocation data for this benchmark (this will run the benchmark)
                 // Pass the abort signal to the provider
-                await provider.getChildren(benchmark.benchmarkFunction, abortSignal);
+                await provider.getChildren(benchmark.benchmarkFunction);
             };
 
             // Process benchmarks with concurrency control while preserving display order
@@ -115,7 +94,7 @@ export function activate(context: vscode.ExtensionContext) {
                 const allPromises = allBenchmarks.map(async (benchmark) => {
                     // Wait for a semaphore slot
                     let acquired = false;
-                    while (!acquired && !abortSignal.aborted) {
+                    while (!acquired && !signal.aborted) {
                         for (let i = 0; i < concurrency; i++) {
                             if (semaphore[i] === null) {
                                 semaphore[i] = benchmark;
@@ -128,14 +107,14 @@ export function activate(context: vscode.ExtensionContext) {
                         }
                     }
 
-                    if (abortSignal.aborted) {
+                    if (signal.aborted) {
                         return;
                     }
 
                     try {
                         await runBenchmark(benchmark);
                     } catch (error) {
-                        if (abortSignal.aborted) {
+                        if (signal.aborted) {
                             console.log('Benchmark cancelled:', benchmark.benchmarkFunction.label);
                         } else {
                             console.error('Benchmark error:', error);
@@ -155,30 +134,23 @@ export function activate(context: vscode.ExtensionContext) {
 
             await processBenchmarks();
 
-            if (abortSignal.aborted) {
-                vscode.window.showInformationMessage('Benchmark operation cancelled');
+            if (signal.aborted) {
+                vscode.window.showInformationMessage('Operation(s) cancelled');
             }
         } catch (error) {
-            if (abortSignal.aborted) {
+            if (signal.aborted) {
                 console.log('Operation cancelled');
-                vscode.window.showInformationMessage('Benchmark operation cancelled');
+                vscode.window.showInformationMessage('Operation(s) cancelled');
             } else {
                 console.error('Error running all benchmarks:', error);
                 vscode.window.showErrorMessage('Error running all benchmarks: ' + (error as Error).message);
             }
-        } finally {
-            currentAbortController = null;
         }
     });
 
     const stopAllBenchmarksCommand = vscode.commands.registerCommand('goAllocations.stopAllBenchmarks', () => {
-        if (currentAbortController) {
-            console.log('Aborting current benchmark operation...');
-            currentAbortController.abort();
-            vscode.window.showInformationMessage('Stopping all benchmarks. Go processes may take a moment to terminate.');
-        } else {
-            vscode.window.showInformationMessage('No benchmarks currently running');
-        }
+        vscode.window.showInformationMessage('Cancelling operation(s). Go processes may take a moment to terminate.');
+        provider.cancelAll();
     });
 
     const runSingleBenchmarkCommand = vscode.commands.registerCommand('goAllocations.runSingleBenchmark', async (benchmarkItem: AllocationItem) => {
@@ -188,46 +160,25 @@ export function activate(context: vscode.ExtensionContext) {
             return;
         }
 
-        if (!treeView) {
-            vscode.window.showErrorMessage('Tree view not available');
-            return;
-        }
-
-        // Cancel any existing operation
-        if (currentAbortController) {
-            currentAbortController.abort();
-        }
-
-        // Create new abort controller for this operation
-        currentAbortController = new AbortController();
-        const abortSignal = currentAbortController.signal;
+        const signal = provider.abortSignal();
 
         try {
-            // Clear the benchmark run state and delete existing children
             provider.clearBenchmarkRunState(benchmarkItem);
-            // Expand the node to trigger getChildren and run the benchmark
             await treeView.reveal(benchmarkItem, { expand: true });
         } catch (error) {
-            if (abortSignal?.aborted) {
+            if (signal.aborted) {
                 console.log('Benchmark operation cancelled');
                 vscode.window.showInformationMessage('Benchmark operation cancelled');
             } else {
                 console.error('Error running single benchmark:', error);
                 vscode.window.showErrorMessage('Error running benchmark: ' + (error as Error).message);
             }
-        } finally {
-            currentAbortController = null;
         }
+        // Note: We don't need a finally block to clean up - the manager handles lifecycle
     });
 
     const refreshCommand = vscode.commands.registerCommand('goAllocations.refresh', () => {
-        // Cancel any existing operations first
-        if (currentAbortController) {
-            currentAbortController.abort();
-            currentAbortController = null;
-        }
-
-        // Refresh the provider
+        provider.cancelAll();
         provider.refresh();
     });
 
