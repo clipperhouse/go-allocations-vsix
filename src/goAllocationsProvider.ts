@@ -10,7 +10,7 @@ const execAsync = promisify(exec);
 export type Item = PackageItem | BenchmarkItem | InformationItem | AllocationItem;
 
 export class PackageItem extends vscode.TreeItem {
-    public readonly filePath: string; // Required for packages
+    public readonly filePath: string;
     public readonly contextValue: 'package' = 'package';
 
     constructor(
@@ -29,7 +29,7 @@ export class PackageItem extends vscode.TreeItem {
 export class BenchmarkItem extends vscode.TreeItem {
     public readonly filePath: string;
     public readonly contextValue: 'benchmarkFunction' = 'benchmarkFunction';
-    public hasBeenRun: boolean = false; // Track if benchmark has been run
+    public hasBeenRun: boolean = false;
 
     constructor(
         label: string,
