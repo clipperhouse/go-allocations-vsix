@@ -18,7 +18,6 @@ export class PackageItem extends vscode.TreeItem {
         filePath: string
     ) {
         super(label, vscode.TreeItemCollapsibleState.Expanded);
-        this.contextValue = 'package';
         this.filePath = filePath; // Ensure it's always set
 
         // Package-specific setup
@@ -37,7 +36,6 @@ export class BenchmarkItem extends vscode.TreeItem {
         filePath: string
     ) {
         super(label, vscode.TreeItemCollapsibleState.Collapsed);
-        this.contextValue = 'benchmarkFunction';
         this.filePath = filePath; // Ensure it's always set
 
         this.iconPath = new vscode.ThemeIcon('symbol-function');
@@ -55,7 +53,6 @@ export class InformationItem extends vscode.TreeItem {
         iconType: 'error' | 'info' | 'none' = 'none'
     ) {
         super(label, vscode.TreeItemCollapsibleState.None);
-        this.contextValue = 'information';
 
         if (iconType !== 'none') {
             this.iconPath = new vscode.ThemeIcon(iconType);
@@ -76,7 +73,6 @@ export class AllocationItem extends vscode.TreeItem {
         allocationData: AllocationData
     ) {
         super(label, vscode.TreeItemCollapsibleState.None);
-        this.contextValue = 'allocationLine';
         this.filePath = filePath;
         this.lineNumber = lineNumber;
         this.allocationData = allocationData;
