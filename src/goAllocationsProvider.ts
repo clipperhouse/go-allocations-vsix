@@ -118,29 +118,30 @@ export class Provider implements vscode.TreeDataProvider<TreeItem> {
             return undefined; // Root level
         }
 
-        switch (element.contextValue) {
-            case 'package':
-                return undefined; // Package is at root level
-            case 'benchmarkFunction':
-                // Find the parent package by looking at the filePath
-                if (element.filePath) {
-                    const parentPackage = this.packages.find(pkg => pkg.path === element.filePath);
-                    if (parentPackage) {
-                        return new PackageItem(
-                            this.getPackageLabel(parentPackage),
-                            parentPackage.path
-                        );
-                    }
-                }
-                return undefined;
-            case 'allocationLine':
-                // For allocation lines, we need to reconstruct the benchmark function
-                // This is tricky since we don't store the parent reference
-                // For now, return undefined - this might cause issues with reveal
-                return undefined;
-            default:
-                return undefined;
+        if (element instanceof PackageItem) {
+            return undefined; // Package is at root level
         }
+
+        if (element instanceof BenchmarkItem) {
+            // Find the parent package by looking at the filePath
+            const parentPackage = this.packages.find(pkg => pkg.path === element.filePath);
+            if (parentPackage) {
+                return new PackageItem(
+                    this.getPackageLabel(parentPackage),
+                    parentPackage.path
+                );
+            }
+            return undefined;
+        }
+
+        if (element instanceof AllocationItem) {
+            // For allocation lines, we need to reconstruct the benchmark function
+            // This is tricky since we don't store the parent reference
+            // For now, return undefined - this might cause issues with reveal
+            return undefined;
+        }
+
+        return undefined;
     }
 
 
@@ -533,63 +534,13 @@ export interface AllocationData {
 
 // Base class for all tree items
 export class Item extends vscode.TreeItem {
-    public readonly filePath?: string;
-    public readonly lineNumber?: number;
-    public hasBeenRun: boolean = false;
-
     constructor(
         public readonly label: string,
         public readonly collapsibleState: vscode.TreeItemCollapsibleState,
-        public readonly contextValue: string,
-        filePath?: string,
-        lineNumber?: number
+        public readonly contextValue: string
     ) {
         super(label, collapsibleState);
         this.contextValue = contextValue;
-        this.filePath = filePath;
-        this.lineNumber = lineNumber;
-
-        // Set appropriate icons and tooltips based on context
-        switch (contextValue) {
-            case 'package':
-                this.iconPath = new vscode.ThemeIcon('package');
-                this.tooltip = `Go package: ${label}${filePath ? `\nPath: ${filePath}` : ''}`;
-                // No command - package nodes only toggle expand/collapse
-                break;
-            case 'benchmarkFunction':
-                this.iconPath = new vscode.ThemeIcon('symbol-function');
-                // Show different tooltip based on whether it's collapsed or expanded
-                if (this.collapsibleState === vscode.TreeItemCollapsibleState.Collapsed) {
-                    this.tooltip = `Click to run ${label} and discover allocations`;
-                } else {
-                    this.tooltip = `Benchmark function: ${label}`;
-                }
-                break;
-            case 'allocationLine':
-                this.iconPath = vscode.Uri.joinPath(vscode.Uri.file(__dirname), '..', 'images', 'memory.goblue.64.png');
-                this.tooltip = this.label;
-                // No command - click will be handled by tree view selection event
-                break;
-            case 'noFiles':
-                this.iconPath = new vscode.ThemeIcon('info');
-                this.tooltip = 'No Go test packages found in workspace';
-                break;
-            case 'noBenchmarks':
-                this.iconPath = new vscode.ThemeIcon('info');
-                this.tooltip = 'No benchmark functions found in this package';
-                break;
-            case 'noAllocations':
-                this.iconPath = new vscode.ThemeIcon('info');
-                this.tooltip = 'No allocation data found for this benchmark';
-                break;
-            case 'instructional':
-                // this.iconPath = new vscode.ThemeIcon('info');
-                break;
-            case 'error':
-                this.iconPath = new vscode.ThemeIcon('error');
-                this.tooltip = 'Error occurred while listing benchmarks';
-                break;
-        }
     }
 }
 
@@ -602,7 +553,7 @@ export class PackageItem extends Item {
         label: string,
         filePath: string
     ) {
-        super(label, vscode.TreeItemCollapsibleState.Expanded, 'package', filePath);
+        super(label, vscode.TreeItemCollapsibleState.Expanded, 'package');
         this.filePath = filePath; // Ensure it's always set
 
         // Package-specific setup
@@ -615,22 +566,17 @@ export class PackageItem extends Item {
 export class BenchmarkItem extends Item {
     public readonly filePath: string; // Required for benchmarks (package directory)
     public readonly contextValue: 'benchmarkFunction' = 'benchmarkFunction';
+    public hasBeenRun: boolean = false; // Track if benchmark has been run
 
     constructor(
         label: string,
         filePath: string
     ) {
-        super(label, vscode.TreeItemCollapsibleState.Collapsed, 'benchmarkFunction', filePath);
+        super(label, vscode.TreeItemCollapsibleState.Collapsed, 'benchmarkFunction');
         this.filePath = filePath; // Ensure it's always set
 
-        // Benchmark-specific setup
         this.iconPath = new vscode.ThemeIcon('symbol-function');
-        // Show different tooltip based on whether it's collapsed or expanded
-        if (this.collapsibleState === vscode.TreeItemCollapsibleState.Collapsed) {
-            this.tooltip = `Click to run ${label} and discover allocations`;
-        } else {
-            this.tooltip = `Benchmark function: ${label}`;
-        }
+        this.tooltip = `Click to run ${label} and discover allocations`;
     }
 }
 
@@ -666,7 +612,7 @@ export class AllocationItem extends Item {
         lineNumber: number,
         allocationData: AllocationData
     ) {
-        super(label, vscode.TreeItemCollapsibleState.None, 'allocationLine', filePath, lineNumber);
+        super(label, vscode.TreeItemCollapsibleState.None, 'allocationLine');
         this.filePath = filePath;
         this.lineNumber = lineNumber;
         this.allocationData = allocationData;
