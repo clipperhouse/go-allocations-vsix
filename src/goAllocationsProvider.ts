@@ -166,10 +166,8 @@ export class Provider implements vscode.TreeDataProvider<TreeItem> {
             }
 
             // Always include instructional text at the top
-            const instructionalItem = new Item(
-                'Click a benchmark below to discover allocations',
-                vscode.TreeItemCollapsibleState.None,
-                'instructional'
+            const instruction = new InformationItem(
+                'Click a benchmark below to discover allocations'
             );
 
             // Return currently discovered packages immediately (even if loading is still in progress)
@@ -178,18 +176,19 @@ export class Provider implements vscode.TreeDataProvider<TreeItem> {
                 pkg.path
             ));
 
-            return [instructionalItem, ...packageItems];
+            return [instruction, ...packageItems];
         }
 
         if (element instanceof PackageItem) {
-            return this.getBenchmarkFunctions(element);
-        } else if (element instanceof BenchmarkItem) {
+            return this.getBenchmarks(element);
+        }
+        if (element instanceof BenchmarkItem) {
             const allocationData = await this.runBenchmark(element);
             element.hasBeenRun = true;
             return allocationData;
-        } else {
-            return Promise.resolve([]);
         }
+
+        return Promise.resolve([]);
     }
 
     private async loadPackages(): Promise<void> {
@@ -308,44 +307,28 @@ export class Provider implements vscode.TreeDataProvider<TreeItem> {
         }
     }
 
-
-    private async getBenchmarkFunctions(packageItem: TreeItem): Promise<TreeItem[]> {
+    private getBenchmarks(packageItem: PackageItem): BenchmarkItem[] {
         if (!packageItem.filePath) {
-            return [];
+            throw new Error('Package item missing filePath');
         }
 
         // Find the package in our cache
         const pkg = this.packages.find(p => p.path === packageItem.filePath);
         if (!pkg) {
-            return [
-                new Item(
-                    'Package not found in cache',
-                    vscode.TreeItemCollapsibleState.None,
-                    'error'
-                )
-            ];
+            throw new Error('Package not found in cache');
         }
 
-        const benchmarkFunctions: TreeItem[] = [];
+        const benchmarks: BenchmarkItem[] = [];
 
-        for (const functionName of pkg.benchmarks) {
+        for (const benchmark of pkg.benchmarks) {
             const item = new BenchmarkItem(
-                functionName,
+                benchmark,
                 packageItem.filePath
             );
-            benchmarkFunctions.push(item);
+            benchmarks.push(item);
         }
 
-        // If no benchmarks found, show a message
-        if (benchmarkFunctions.length === 0) {
-            benchmarkFunctions.push(new Item(
-                'No benchmark functions found',
-                vscode.TreeItemCollapsibleState.None,
-                'noBenchmarks'
-            ));
-        }
-
-        return benchmarkFunctions;
+        return benchmarks;
     }
 
     async getAllocationData(functionItem: TreeItem): Promise<TreeItem[]> {
@@ -401,9 +384,8 @@ export class Provider implements vscode.TreeDataProvider<TreeItem> {
         } catch (error) {
             console.error('Error getting allocation data:', error);
             return [
-                new Item(
+                new InformationItem(
                     'Error running benchmark with memory profiling',
-                    vscode.TreeItemCollapsibleState.None,
                     'error'
                 )
             ];
@@ -497,10 +479,9 @@ export class Provider implements vscode.TreeDataProvider<TreeItem> {
 
             // If no allocation data found, show a message
             if (allocationItems.length === 0) {
-                allocationItems.push(new Item(
+                allocationItems.push(new InformationItem(
                     'No allocations found',
-                    vscode.TreeItemCollapsibleState.None,
-                    'noAllocations'
+                    'info'
                 ));
             }
 
@@ -508,9 +489,8 @@ export class Provider implements vscode.TreeDataProvider<TreeItem> {
         } catch (error) {
             console.error('Error parsing memory profile:', error);
             return [
-                new Item(
+                new InformationItem(
                     'Error parsing memory profile',
-                    vscode.TreeItemCollapsibleState.None,
                     'error'
                 )
             ];
@@ -684,5 +664,24 @@ export class BenchmarkItem extends Item {
     }
 }
 
-// Union type for all tree items
-export type TreeItem = PackageItem | BenchmarkItem | Item;
+// Specific type for informational items (instructions, errors, messages)
+export class InformationItem extends Item {
+    constructor(
+        label: string,
+        iconType: 'error' | 'info' | 'none' = 'none'
+    ) {
+        super(label, vscode.TreeItemCollapsibleState.None, 'information');
+
+        // Set appropriate icons based on type
+        switch (iconType) {
+            case 'error':
+            case 'info':
+                this.iconPath = new vscode.ThemeIcon(iconType);
+                break;
+            default:
+                break;
+        }
+    }
+}
+
+export type TreeItem = PackageItem | BenchmarkItem | InformationItem | Item;
