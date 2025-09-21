@@ -7,9 +7,105 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 
-export class Provider implements vscode.TreeDataProvider<TreeItem> {
-    public _onDidChangeTreeData: vscode.EventEmitter<TreeItem | undefined | null | void> = new vscode.EventEmitter<TreeItem | undefined | null | void>();
-    readonly onDidChangeTreeData: vscode.Event<TreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
+export type Item = PackageItem | BenchmarkItem | InformationItem | AllocationItem;
+
+export class PackageItem extends vscode.TreeItem {
+    public readonly filePath: string; // Required for packages
+    public readonly contextValue: 'package' = 'package';
+
+    constructor(
+        label: string,
+        filePath: string
+    ) {
+        super(label, vscode.TreeItemCollapsibleState.Expanded);
+        this.contextValue = 'package';
+        this.filePath = filePath; // Ensure it's always set
+
+        // Package-specific setup
+        this.iconPath = new vscode.ThemeIcon('package');
+        this.tooltip = `Go package: ${label}\nPath: ${filePath}`;
+    }
+}
+
+export class BenchmarkItem extends vscode.TreeItem {
+    public readonly filePath: string;
+    public readonly contextValue: 'benchmarkFunction' = 'benchmarkFunction';
+    public hasBeenRun: boolean = false; // Track if benchmark has been run
+
+    constructor(
+        label: string,
+        filePath: string
+    ) {
+        super(label, vscode.TreeItemCollapsibleState.Collapsed);
+        this.contextValue = 'benchmarkFunction';
+        this.filePath = filePath; // Ensure it's always set
+
+        this.iconPath = new vscode.ThemeIcon('symbol-function');
+        this.tooltip = `Click to run ${label} and discover allocations`;
+    }
+}
+
+export type BenchmarkChildItem = InformationItem | AllocationItem;
+
+export class InformationItem extends vscode.TreeItem {
+    public readonly contextValue: 'information' = 'information';
+
+    constructor(
+        label: string,
+        iconType: 'error' | 'info' | 'none' = 'none'
+    ) {
+        super(label, vscode.TreeItemCollapsibleState.None);
+        this.contextValue = 'information';
+
+        if (iconType !== 'none') {
+            this.iconPath = new vscode.ThemeIcon(iconType);
+        }
+    }
+}
+
+export class AllocationItem extends vscode.TreeItem {
+    public readonly filePath: string;
+    public readonly lineNumber: number;
+    public readonly allocationData: AllocationData;
+    public readonly contextValue: 'allocationLine' = 'allocationLine';
+
+    constructor(
+        label: string,
+        filePath: string,
+        lineNumber: number,
+        allocationData: AllocationData
+    ) {
+        super(label, vscode.TreeItemCollapsibleState.None);
+        this.contextValue = 'allocationLine';
+        this.filePath = filePath;
+        this.lineNumber = lineNumber;
+        this.allocationData = allocationData;
+        this.iconPath = vscode.Uri.joinPath(vscode.Uri.file(__dirname), '..', 'images', 'memory.goblue.64.png');
+        this.description = `${allocationData.flatBytes} flat, ${allocationData.cumulativeBytes} cumulative`;
+        this.tooltip = this.getTooltip();
+    }
+
+    private getTooltip(): string {
+        const { flatBytes, cumulativeBytes, functionName } = this.allocationData;
+        return [
+            'Click to view the source code line\n',
+            `Function: ${functionName}`,
+            `Flat allocation: ${flatBytes}`,
+            `Cumulative allocation: ${cumulativeBytes}`,
+            `Location: ${path.basename(this.filePath)}:${this.lineNumber}`
+        ].join('\n');
+    }
+}
+
+export interface AllocationData {
+    flatBytes: string;
+    cumulativeBytes: string;
+    functionName: string;
+}
+
+export class Provider implements vscode.TreeDataProvider<Item> {
+    public _onDidChangeTreeData: vscode.EventEmitter<Item | undefined | null | void> = new vscode.EventEmitter<Item | undefined | null | void>();
+    readonly onDidChangeTreeData: vscode.Event<Item | undefined | null | void> = this._onDidChangeTreeData.event;
 
     // Cache for discovered packages and their benchmarks
     private packages: { name: string; path: string; benchmarks: string[] }[] = [];
@@ -103,11 +199,11 @@ export class Provider implements vscode.TreeDataProvider<TreeItem> {
         this._onDidChangeTreeData.fire();
     }
 
-    getTreeItem(element: TreeItem): vscode.TreeItem {
+    getTreeItem(element: Item): vscode.TreeItem {
         return element;
     }
 
-    getParent(element: TreeItem): vscode.ProviderResult<TreeItem> {
+    getParent(element: Item): vscode.ProviderResult<Item> {
         // For our tree structure:
         // - Root level has no parent (return undefined)
         // - Package items have no parent (return undefined)
@@ -145,7 +241,7 @@ export class Provider implements vscode.TreeDataProvider<TreeItem> {
     }
 
 
-    async getChildren(element?: TreeItem): Promise<TreeItem[]> {
+    async getChildren(element?: Item): Promise<Item[]> {
         if (!element) {
             // If not loaded and not in progress, start loading
             if (!this.discoveryInProgress && !this.packagesLoaded) {
@@ -525,108 +621,3 @@ export class Provider implements vscode.TreeDataProvider<TreeItem> {
         }
     }
 }
-
-export interface AllocationData {
-    flatBytes: string;
-    cumulativeBytes: string;
-    functionName: string;
-}
-
-// Specific type for package items with stronger typing
-export class PackageItem extends vscode.TreeItem {
-    public readonly filePath: string; // Required for packages
-    public readonly contextValue: 'package' = 'package';
-
-    constructor(
-        label: string,
-        filePath: string
-    ) {
-        super(label, vscode.TreeItemCollapsibleState.Expanded);
-        this.contextValue = 'package';
-        this.filePath = filePath; // Ensure it's always set
-
-        // Package-specific setup
-        this.iconPath = new vscode.ThemeIcon('package');
-        this.tooltip = `Go package: ${label}\nPath: ${filePath}`;
-    }
-}
-
-// Specific type for benchmark function items with stronger typing
-export class BenchmarkItem extends vscode.TreeItem {
-    public readonly filePath: string; // Required for benchmarks (package directory)
-    public readonly contextValue: 'benchmarkFunction' = 'benchmarkFunction';
-    public hasBeenRun: boolean = false; // Track if benchmark has been run
-
-    constructor(
-        label: string,
-        filePath: string
-    ) {
-        super(label, vscode.TreeItemCollapsibleState.Collapsed);
-        this.contextValue = 'benchmarkFunction';
-        this.filePath = filePath; // Ensure it's always set
-
-        this.iconPath = new vscode.ThemeIcon('symbol-function');
-        this.tooltip = `Click to run ${label} and discover allocations`;
-    }
-}
-
-// Specific type for informational items (instructions, errors, messages)
-export class InformationItem extends vscode.TreeItem {
-    public readonly contextValue: 'information' = 'information';
-
-    constructor(
-        label: string,
-        iconType: 'error' | 'info' | 'none' = 'none'
-    ) {
-        super(label, vscode.TreeItemCollapsibleState.None);
-        this.contextValue = 'information';
-
-        // Set appropriate icons based on type
-        switch (iconType) {
-            case 'error':
-            case 'info':
-                this.iconPath = new vscode.ThemeIcon(iconType);
-                break;
-            default:
-                break;
-        }
-    }
-}
-
-export class AllocationItem extends vscode.TreeItem {
-    public readonly filePath: string;
-    public readonly lineNumber: number;
-    public readonly allocationData: AllocationData;
-    public readonly contextValue: 'allocationLine' = 'allocationLine';
-
-    constructor(
-        label: string,
-        filePath: string,
-        lineNumber: number,
-        allocationData: AllocationData
-    ) {
-        super(label, vscode.TreeItemCollapsibleState.None);
-        this.contextValue = 'allocationLine';
-        this.filePath = filePath;
-        this.lineNumber = lineNumber;
-        this.allocationData = allocationData;
-        this.iconPath = vscode.Uri.joinPath(vscode.Uri.file(__dirname), '..', 'images', 'memory.goblue.64.png');
-        this.description = `${allocationData.flatBytes} flat, ${allocationData.cumulativeBytes} cumulative`;
-        this.tooltip = this.getTooltip();
-    }
-
-    private getTooltip(): string {
-        const { flatBytes, cumulativeBytes, functionName } = this.allocationData;
-        return [
-            'Click to view the source code line\n',
-            `Function: ${functionName}`,
-            `Flat allocation: ${flatBytes}`,
-            `Cumulative allocation: ${cumulativeBytes}`,
-            `Location: ${path.basename(this.filePath)}:${this.lineNumber}`
-        ].join('\n');
-    }
-}
-
-export type BenchmarkChildItem = InformationItem | AllocationItem;
-
-export type TreeItem = PackageItem | BenchmarkItem | InformationItem | AllocationItem;

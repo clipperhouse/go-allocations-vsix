@@ -78,7 +78,8 @@
             "goAllocations": [
                 {
                     "id": "goAllocationsExplorer",
-                    "name": "Go Allocations Explorer"
+                    "name": "Go Allocations Explorer",
+                    "icon": "images/memory.goblue.64.png"
                 }
             ]
         },

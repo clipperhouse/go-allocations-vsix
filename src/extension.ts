@@ -1,14 +1,14 @@
 import * as vscode from 'vscode';
-import { Provider, TreeItem, PackageItem, BenchmarkItem, AllocationItem } from './goAllocationsProvider';
+import { Provider, Item, PackageItem, BenchmarkItem, AllocationItem } from './goAllocationsProvider';
 
 export function activate(context: vscode.ExtensionContext) {
     const provider = new Provider();
 
-    let options: vscode.TreeViewOptions<TreeItem> = {
+    let options: vscode.TreeViewOptions<Item> = {
         treeDataProvider: provider,
         showCollapseAll: true
     }
-    let treeView = vscode.window.createTreeView<TreeItem>('goAllocationsExplorer', options);
+    let treeView = vscode.window.createTreeView<Item>('goAllocationsExplorer', options);
     context.subscriptions.push(treeView);
 
     // Handle clicks on allocation lines
@@ -44,7 +44,7 @@ export function activate(context: vscode.ExtensionContext) {
             const rootItems = await provider.getChildren();
 
             // Collect all benchmark functions first
-            const allBenchmarks: { packageItem: TreeItem; benchmarkFunction: TreeItem }[] = [];
+            const allBenchmarks: { packageItem: Item; benchmarkFunction: Item }[] = [];
 
             for (const packageItem of rootItems) {
                 if (signal.aborted) {
@@ -71,7 +71,7 @@ export function activate(context: vscode.ExtensionContext) {
             const concurrency = 4;
             const semaphore = new Array(concurrency).fill(null);
 
-            const runBenchmark = async (benchmark: { packageItem: TreeItem; benchmarkFunction: TreeItem }) => {
+            const runBenchmark = async (benchmark: { packageItem: Item; benchmarkFunction: Item }) => {
                 // Check if cancelled before running this benchmark
                 if (signal.aborted) {
                     throw new Error('Operation cancelled');
