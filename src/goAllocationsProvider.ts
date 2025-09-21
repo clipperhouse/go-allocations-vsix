@@ -78,13 +78,9 @@ export class Provider implements vscode.TreeDataProvider<TreeItem> {
         }
     }
 
-    clearBenchmarkRunState(benchmarkItem?: TreeItem): void {
-        if (benchmarkItem) {
-            benchmarkItem.hasBeenRun = false;
-            this._onDidChangeTreeData.fire(benchmarkItem);
-        } else {
-            this._onDidChangeTreeData.fire();
-        }
+    clearBenchmarkRunState(item: BenchmarkItem): void {
+        item.hasBeenRun = false;
+        this._onDidChangeTreeData.fire(item);
     }
 
     /**
@@ -185,15 +181,14 @@ export class Provider implements vscode.TreeDataProvider<TreeItem> {
             return [instructionalItem, ...packageItems];
         }
 
-        switch (element.contextValue) {
-            case 'package':
-                return this.getBenchmarkFunctions(element);
-            case 'benchmarkFunction':
-                const allocationData = await this.runBenchmark(element);
-                element.hasBeenRun = true;
-                return allocationData;
-            default:
-                return Promise.resolve([]);
+        if (element instanceof PackageItem) {
+            return this.getBenchmarkFunctions(element);
+        } else if (element instanceof BenchmarkItem) {
+            const allocationData = await this.runBenchmark(element);
+            element.hasBeenRun = true;
+            return allocationData;
+        } else {
+            return Promise.resolve([]);
         }
     }
 
@@ -334,10 +329,8 @@ export class Provider implements vscode.TreeDataProvider<TreeItem> {
         const benchmarkFunctions: TreeItem[] = [];
 
         for (const functionName of pkg.benchmarks) {
-            const item = new Item(
+            const item = new BenchmarkItem(
                 functionName,
-                vscode.TreeItemCollapsibleState.Collapsed, // Not expanded by default
-                'benchmarkFunction',
                 packageItem.filePath
             );
             benchmarkFunctions.push(item);
@@ -668,5 +661,28 @@ export class PackageItem extends Item {
     }
 }
 
+// Specific type for benchmark function items with stronger typing
+export class BenchmarkItem extends Item {
+    public readonly filePath: string; // Required for benchmarks (package directory)
+    public readonly contextValue: 'benchmarkFunction' = 'benchmarkFunction';
+
+    constructor(
+        label: string,
+        filePath: string
+    ) {
+        super(label, vscode.TreeItemCollapsibleState.Collapsed, 'benchmarkFunction', filePath);
+        this.filePath = filePath; // Ensure it's always set
+
+        // Benchmark-specific setup
+        this.iconPath = new vscode.ThemeIcon('symbol-function');
+        // Show different tooltip based on whether it's collapsed or expanded
+        if (this.collapsibleState === vscode.TreeItemCollapsibleState.Collapsed) {
+            this.tooltip = `Click to run ${label} and discover allocations`;
+        } else {
+            this.tooltip = `Benchmark function: ${label}`;
+        }
+    }
+}
+
 // Union type for all tree items
-export type TreeItem = PackageItem | Item;
+export type TreeItem = PackageItem | BenchmarkItem | Item;

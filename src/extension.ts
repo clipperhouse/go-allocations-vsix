@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { Provider, TreeItem, PackageItem } from './goAllocationsProvider';
+import { Provider, TreeItem, PackageItem, BenchmarkItem } from './goAllocationsProvider';
 
 export function activate(context: vscode.ExtensionContext) {
     const provider = new Provider();
@@ -64,7 +64,7 @@ export function activate(context: vscode.ExtensionContext) {
 
                     // Collect all benchmark functions
                     for (const benchmarkFunction of benchmarkFunctions) {
-                        if (benchmarkFunction.contextValue === 'benchmarkFunction') {
+                        if (benchmarkFunction instanceof BenchmarkItem) {
                             allBenchmarks.push({ packageItem, benchmarkFunction });
                         }
                     }
@@ -153,13 +153,7 @@ export function activate(context: vscode.ExtensionContext) {
         provider.cancelAll();
     });
 
-    const runSingleBenchmarkCommand = vscode.commands.registerCommand('goAllocations.runSingleBenchmark', async (benchmarkItem: TreeItem) => {
-        const ok = benchmarkItem && benchmarkItem.contextValue === 'benchmarkFunction';
-        if (!ok) {
-            vscode.window.showErrorMessage('Invalid benchmark item');
-            return;
-        }
-
+    const runSingleBenchmarkCommand = vscode.commands.registerCommand('goAllocations.runSingleBenchmark', async (benchmarkItem: BenchmarkItem) => {
         const signal = provider.abortSignal();
 
         try {
