@@ -451,10 +451,8 @@ export class Provider implements vscode.TreeDataProvider<TreeItem> {
                             if (isUser) {
                                 const functionName = this.shortFunctionName(currentFunction);
 
-                                const allocationItem = new Item(
+                                const allocationItem = new AllocationItem(
                                     `${codeLine.trim()}`,
-                                    vscode.TreeItemCollapsibleState.None,
-                                    'allocationLine',
                                     currentFile,
                                     lineNumber,
                                     {
@@ -463,8 +461,6 @@ export class Provider implements vscode.TreeDataProvider<TreeItem> {
                                         functionName: functionName
                                     }
                                 );
-                                // Set the description to show bytes on a separate line
-                                allocationItem.description = `${flatBytes} flat, ${cumulativeBytes} cumulative`;
                                 allocationItems.push(allocationItem);
                             }
                         }
@@ -547,7 +543,6 @@ export interface AllocationData {
 export class Item extends vscode.TreeItem {
     public readonly filePath?: string;
     public readonly lineNumber?: number;
-    public readonly allocationData?: AllocationData;
     public hasBeenRun: boolean = false;
 
     constructor(
@@ -555,14 +550,12 @@ export class Item extends vscode.TreeItem {
         public readonly collapsibleState: vscode.TreeItemCollapsibleState,
         public readonly contextValue: string,
         filePath?: string,
-        lineNumber?: number,
-        allocationData?: AllocationData
+        lineNumber?: number
     ) {
         super(label, collapsibleState);
         this.contextValue = contextValue;
         this.filePath = filePath;
         this.lineNumber = lineNumber;
-        this.allocationData = allocationData;
 
         // Set appropriate icons and tooltips based on context
         switch (contextValue) {
@@ -582,7 +575,7 @@ export class Item extends vscode.TreeItem {
                 break;
             case 'allocationLine':
                 this.iconPath = vscode.Uri.joinPath(vscode.Uri.file(__dirname), '..', 'images', 'memory.goblue.64.png');
-                this.tooltip = this.buildAllocationTooltip();
+                this.tooltip = this.label;
                 // No command - click will be handled by tree view selection event
                 break;
             case 'noFiles':
@@ -605,21 +598,6 @@ export class Item extends vscode.TreeItem {
                 this.tooltip = 'Error occurred while listing benchmarks';
                 break;
         }
-    }
-
-    private buildAllocationTooltip(): string {
-        if (!this.allocationData) {
-            return this.label;
-        }
-
-        const { flatBytes, cumulativeBytes, functionName } = this.allocationData;
-        return [
-            'Click to view the source code line\n',
-            `Function: ${functionName}`,
-            `Flat allocation: ${flatBytes}`,
-            `Cumulative allocation: ${cumulativeBytes}`,
-            this.filePath && this.lineNumber ? `Location: ${path.basename(this.filePath)}:${this.lineNumber}` : ''
-        ].filter(line => line).join('\n');
     }
 }
 
@@ -684,4 +662,37 @@ export class InformationItem extends Item {
     }
 }
 
-export type TreeItem = PackageItem | BenchmarkItem | InformationItem | Item;
+export class AllocationItem extends Item {
+    public readonly filePath: string;
+    public readonly lineNumber: number;
+    public readonly allocationData: AllocationData;
+    public readonly contextValue: 'allocationLine' = 'allocationLine';
+
+    constructor(
+        label: string,
+        filePath: string,
+        lineNumber: number,
+        allocationData: AllocationData
+    ) {
+        super(label, vscode.TreeItemCollapsibleState.None, 'allocationLine', filePath, lineNumber);
+        this.filePath = filePath;
+        this.lineNumber = lineNumber;
+        this.allocationData = allocationData;
+        this.iconPath = vscode.Uri.joinPath(vscode.Uri.file(__dirname), '..', 'images', 'memory.goblue.64.png');
+        this.description = `${allocationData.flatBytes} flat, ${allocationData.cumulativeBytes} cumulative`;
+        this.tooltip = this.getTooltip();
+    }
+
+    private getTooltip(): string {
+        const { flatBytes, cumulativeBytes, functionName } = this.allocationData;
+        return [
+            'Click to view the source code line\n',
+            `Function: ${functionName}`,
+            `Flat allocation: ${flatBytes}`,
+            `Cumulative allocation: ${cumulativeBytes}`,
+            `Location: ${path.basename(this.filePath)}:${this.lineNumber}`
+        ].join('\n');
+    }
+}
+
+export type TreeItem = PackageItem | BenchmarkItem | InformationItem | AllocationItem | Item;

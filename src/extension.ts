@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { Provider, TreeItem, PackageItem, BenchmarkItem } from './goAllocationsProvider';
+import { Provider, TreeItem, PackageItem, BenchmarkItem, AllocationItem } from './goAllocationsProvider';
 
 export function activate(context: vscode.ExtensionContext) {
     const provider = new Provider();
@@ -18,11 +18,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         const selectedItem = e.selection[0];
-        const ok = selectedItem.contextValue === 'allocationLine'
-            && selectedItem.filePath
-            && selectedItem.lineNumber;
-
-        if (!ok) {
+        if (!(selectedItem instanceof AllocationItem)) {
             return;
         }
 
