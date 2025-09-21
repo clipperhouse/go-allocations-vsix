@@ -103,15 +103,6 @@ export class Provider implements vscode.TreeDataProvider<TreeItem> {
         this._onDidChangeTreeData.fire();
     }
 
-    /**
-     * Method to run a benchmark and get allocation data.
-     * Used internally by getChildren when expanding benchmark function nodes.
-     */
-    async runBenchmark(benchmarkItem: TreeItem): Promise<TreeItem[]> {
-        const result = await this.getAllocationData(benchmarkItem);
-        return result;
-    }
-
     getTreeItem(element: TreeItem): vscode.TreeItem {
         return element;
     }
@@ -182,8 +173,9 @@ export class Provider implements vscode.TreeDataProvider<TreeItem> {
         if (element instanceof PackageItem) {
             return this.getBenchmarks(element);
         }
+
         if (element instanceof BenchmarkItem) {
-            const allocationData = await this.runBenchmark(element);
+            const allocationData = await this.getAllocationData(element);
             element.hasBeenRun = true;
             return allocationData;
         }
@@ -331,10 +323,10 @@ export class Provider implements vscode.TreeDataProvider<TreeItem> {
         return benchmarks;
     }
 
-    async getAllocationData(functionItem: TreeItem): Promise<TreeItem[]> {
+    async getAllocationData(benchmarkItem: BenchmarkItem): Promise<BenchmarkChildItem[]> {
         const signal = this.abortSignal();
 
-        if (!functionItem.filePath) {
+        if (!benchmarkItem.filePath) {
             return [];
         }
 
@@ -348,14 +340,14 @@ export class Provider implements vscode.TreeDataProvider<TreeItem> {
             const tempDir = os.tmpdir();
             const uniqueId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}-${process.pid}`;
             const memprofilePath = path.join(tempDir, `go-allocations-memprofile-${uniqueId}.pb.gz`);
-            const benchmarkName = functionItem.label;
+            const benchmarkName = benchmarkItem.label;
 
             try {
                 // Run the specific benchmark with memory profiling and debug info
                 const { stdout, stderr } = await execAsync(
                     `go test -bench=^${benchmarkName}$ -memprofile=${memprofilePath} -run=^$ -gcflags="all=-N -l"`,
                     {
-                        cwd: functionItem.filePath,
+                        cwd: benchmarkItem.filePath,
                         signal: signal
                     }
                 );
@@ -370,7 +362,7 @@ export class Provider implements vscode.TreeDataProvider<TreeItem> {
                 }
 
                 // Parse the memory profile using pprof
-                const allocationData = await this.parseMemoryProfile(memprofilePath, functionItem.filePath);
+                const allocationData = await this.parseMemoryProfile(memprofilePath, benchmarkItem.filePath);
 
                 return allocationData;
             } finally {
@@ -400,7 +392,7 @@ export class Provider implements vscode.TreeDataProvider<TreeItem> {
         return firstDot >= 0 ? afterSlash.slice(firstDot + 1) : afterSlash;
     };
 
-    private async parseMemoryProfile(memprofilePath: string, packagePath: string): Promise<TreeItem[]> {
+    private async parseMemoryProfile(memprofilePath: string, packagePath: string): Promise<BenchmarkChildItem[]> {
         const signal = this.abortSignal();
 
         try {
@@ -415,7 +407,7 @@ export class Provider implements vscode.TreeDataProvider<TreeItem> {
                 signal: signal
             });
 
-            const allocationItems: TreeItem[] = [];
+            const allocationItems: BenchmarkChildItem[] = [];
             const lines = listOutput.split('\n');
 
             let currentFunction = '';
@@ -695,4 +687,6 @@ export class AllocationItem extends Item {
     }
 }
 
-export type TreeItem = PackageItem | BenchmarkItem | InformationItem | AllocationItem | Item;
+export type BenchmarkChildItem = InformationItem | AllocationItem;
+
+export type TreeItem = PackageItem | BenchmarkItem | BenchmarkChildItem | Item;
