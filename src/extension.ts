@@ -1,14 +1,14 @@
 import * as vscode from 'vscode';
-import { GoAllocationsProvider, AllocationItem } from './goAllocationsProvider';
+import { Provider, TreeItem, PackageItem } from './goAllocationsProvider';
 
 export function activate(context: vscode.ExtensionContext) {
-    const provider = new GoAllocationsProvider();
+    const provider = new Provider();
 
-    let options: vscode.TreeViewOptions<AllocationItem> = {
+    let options: vscode.TreeViewOptions<TreeItem> = {
         treeDataProvider: provider,
         showCollapseAll: true
     }
-    let treeView = vscode.window.createTreeView<AllocationItem>('goAllocationsExplorer', options);
+    let treeView = vscode.window.createTreeView<TreeItem>('goAllocationsExplorer', options);
     context.subscriptions.push(treeView);
 
     // Handle clicks on allocation lines
@@ -48,14 +48,14 @@ export function activate(context: vscode.ExtensionContext) {
             const rootItems = await provider.getChildren();
 
             // Collect all benchmark functions first
-            const allBenchmarks: { packageItem: AllocationItem; benchmarkFunction: AllocationItem }[] = [];
+            const allBenchmarks: { packageItem: TreeItem; benchmarkFunction: TreeItem }[] = [];
 
             for (const packageItem of rootItems) {
                 if (signal.aborted) {
                     return;
                 }
 
-                if (packageItem.contextValue === 'package') {
+                if (packageItem instanceof PackageItem) {
                     // Expand the package node
                     await treeView.reveal(packageItem, { expand: true });
 
@@ -75,7 +75,7 @@ export function activate(context: vscode.ExtensionContext) {
             const concurrency = 4;
             const semaphore = new Array(concurrency).fill(null);
 
-            const runBenchmark = async (benchmark: { packageItem: AllocationItem; benchmarkFunction: AllocationItem }) => {
+            const runBenchmark = async (benchmark: { packageItem: TreeItem; benchmarkFunction: TreeItem }) => {
                 // Check if cancelled before running this benchmark
                 if (signal.aborted) {
                     throw new Error('Operation cancelled');
@@ -153,7 +153,7 @@ export function activate(context: vscode.ExtensionContext) {
         provider.cancelAll();
     });
 
-    const runSingleBenchmarkCommand = vscode.commands.registerCommand('goAllocations.runSingleBenchmark', async (benchmarkItem: AllocationItem) => {
+    const runSingleBenchmarkCommand = vscode.commands.registerCommand('goAllocations.runSingleBenchmark', async (benchmarkItem: TreeItem) => {
         const ok = benchmarkItem && benchmarkItem.contextValue === 'benchmarkFunction';
         if (!ok) {
             vscode.window.showErrorMessage('Invalid benchmark item');

@@ -7,9 +7,9 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 
-export class GoAllocationsProvider implements vscode.TreeDataProvider<AllocationItem> {
-    public _onDidChangeTreeData: vscode.EventEmitter<AllocationItem | undefined | null | void> = new vscode.EventEmitter<AllocationItem | undefined | null | void>();
-    readonly onDidChangeTreeData: vscode.Event<AllocationItem | undefined | null | void> = this._onDidChangeTreeData.event;
+export class Provider implements vscode.TreeDataProvider<TreeItem> {
+    public _onDidChangeTreeData: vscode.EventEmitter<TreeItem | undefined | null | void> = new vscode.EventEmitter<TreeItem | undefined | null | void>();
+    readonly onDidChangeTreeData: vscode.Event<TreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
 
     // Cache for discovered packages and their benchmarks
     private packages: { name: string; path: string; benchmarks: string[] }[] = [];
@@ -78,7 +78,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         }
     }
 
-    clearBenchmarkRunState(benchmarkItem?: AllocationItem): void {
+    clearBenchmarkRunState(benchmarkItem?: TreeItem): void {
         if (benchmarkItem) {
             benchmarkItem.hasBeenRun = false;
             this._onDidChangeTreeData.fire(benchmarkItem);
@@ -111,16 +111,16 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
      * Method to run a benchmark and get allocation data.
      * Used internally by getChildren when expanding benchmark function nodes.
      */
-    async runBenchmark(benchmarkItem: AllocationItem): Promise<AllocationItem[]> {
+    async runBenchmark(benchmarkItem: TreeItem): Promise<TreeItem[]> {
         const result = await this.getAllocationData(benchmarkItem);
         return result;
     }
 
-    getTreeItem(element: AllocationItem): vscode.TreeItem {
+    getTreeItem(element: TreeItem): vscode.TreeItem {
         return element;
     }
 
-    getParent(element: AllocationItem): vscode.ProviderResult<AllocationItem> {
+    getParent(element: TreeItem): vscode.ProviderResult<TreeItem> {
         // For our tree structure:
         // - Root level has no parent (return undefined)
         // - Package items have no parent (return undefined)
@@ -139,10 +139,8 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
                 if (element.filePath) {
                     const parentPackage = this.packages.find(pkg => pkg.path === element.filePath);
                     if (parentPackage) {
-                        return new AllocationItem(
+                        return new PackageItem(
                             this.getPackageLabel(parentPackage),
-                            vscode.TreeItemCollapsibleState.Expanded,
-                            'package',
                             parentPackage.path
                         );
                     }
@@ -159,7 +157,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
     }
 
 
-    async getChildren(element?: AllocationItem): Promise<AllocationItem[]> {
+    async getChildren(element?: TreeItem): Promise<TreeItem[]> {
         if (!element) {
             // If not loaded and not in progress, start loading
             if (!this.discoveryInProgress && !this.packagesLoaded) {
@@ -172,17 +170,15 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
             }
 
             // Always include instructional text at the top
-            const instructionalItem = new AllocationItem(
+            const instructionalItem = new Item(
                 'Click a benchmark below to discover allocations',
                 vscode.TreeItemCollapsibleState.None,
                 'instructional'
             );
 
             // Return currently discovered packages immediately (even if loading is still in progress)
-            const packageItems = this.packages.map(pkg => new AllocationItem(
+            const packageItems = this.packages.map(pkg => new PackageItem(
                 this.getPackageLabel(pkg),
-                vscode.TreeItemCollapsibleState.Expanded,
-                'package',
                 pkg.path
             ));
 
@@ -318,7 +314,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
     }
 
 
-    private async getBenchmarkFunctions(packageItem: AllocationItem): Promise<AllocationItem[]> {
+    private async getBenchmarkFunctions(packageItem: TreeItem): Promise<TreeItem[]> {
         if (!packageItem.filePath) {
             return [];
         }
@@ -327,7 +323,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         const pkg = this.packages.find(p => p.path === packageItem.filePath);
         if (!pkg) {
             return [
-                new AllocationItem(
+                new Item(
                     'Package not found in cache',
                     vscode.TreeItemCollapsibleState.None,
                     'error'
@@ -335,10 +331,10 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
             ];
         }
 
-        const benchmarkFunctions: AllocationItem[] = [];
+        const benchmarkFunctions: TreeItem[] = [];
 
         for (const functionName of pkg.benchmarks) {
-            const item = new AllocationItem(
+            const item = new Item(
                 functionName,
                 vscode.TreeItemCollapsibleState.Collapsed, // Not expanded by default
                 'benchmarkFunction',
@@ -349,7 +345,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
 
         // If no benchmarks found, show a message
         if (benchmarkFunctions.length === 0) {
-            benchmarkFunctions.push(new AllocationItem(
+            benchmarkFunctions.push(new Item(
                 'No benchmark functions found',
                 vscode.TreeItemCollapsibleState.None,
                 'noBenchmarks'
@@ -359,7 +355,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         return benchmarkFunctions;
     }
 
-    async getAllocationData(functionItem: AllocationItem): Promise<AllocationItem[]> {
+    async getAllocationData(functionItem: TreeItem): Promise<TreeItem[]> {
         const signal = this.abortSignal();
 
         if (!functionItem.filePath) {
@@ -412,7 +408,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         } catch (error) {
             console.error('Error getting allocation data:', error);
             return [
-                new AllocationItem(
+                new Item(
                     'Error running benchmark with memory profiling',
                     vscode.TreeItemCollapsibleState.None,
                     'error'
@@ -429,7 +425,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         return firstDot >= 0 ? afterSlash.slice(firstDot + 1) : afterSlash;
     };
 
-    private async parseMemoryProfile(memprofilePath: string, packagePath: string): Promise<AllocationItem[]> {
+    private async parseMemoryProfile(memprofilePath: string, packagePath: string): Promise<TreeItem[]> {
         const signal = this.abortSignal();
 
         try {
@@ -444,7 +440,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
                 signal: signal
             });
 
-            const allocationItems: AllocationItem[] = [];
+            const allocationItems: TreeItem[] = [];
             const lines = listOutput.split('\n');
 
             let currentFunction = '';
@@ -480,7 +476,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
                             if (isUser) {
                                 const functionName = this.shortFunctionName(currentFunction);
 
-                                const allocationItem = new AllocationItem(
+                                const allocationItem = new Item(
                                     `${codeLine.trim()}`,
                                     vscode.TreeItemCollapsibleState.None,
                                     'allocationLine',
@@ -508,7 +504,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
 
             // If no allocation data found, show a message
             if (allocationItems.length === 0) {
-                allocationItems.push(new AllocationItem(
+                allocationItems.push(new Item(
                     'No allocations found',
                     vscode.TreeItemCollapsibleState.None,
                     'noAllocations'
@@ -519,7 +515,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         } catch (error) {
             console.error('Error parsing memory profile:', error);
             return [
-                new AllocationItem(
+                new Item(
                     'Error parsing memory profile',
                     vscode.TreeItemCollapsibleState.None,
                     'error'
@@ -574,7 +570,8 @@ export interface AllocationData {
     functionName: string;
 }
 
-export class AllocationItem extends vscode.TreeItem {
+// Base class for all tree items
+export class Item extends vscode.TreeItem {
     public readonly filePath?: string;
     public readonly lineNumber?: number;
     public readonly allocationData?: AllocationData;
@@ -652,3 +649,24 @@ export class AllocationItem extends vscode.TreeItem {
         ].filter(line => line).join('\n');
     }
 }
+
+// Specific type for package items with stronger typing
+export class PackageItem extends Item {
+    public readonly filePath: string; // Required for packages
+    public readonly contextValue: 'package' = 'package';
+
+    constructor(
+        label: string,
+        filePath: string
+    ) {
+        super(label, vscode.TreeItemCollapsibleState.Expanded, 'package', filePath);
+        this.filePath = filePath; // Ensure it's always set
+
+        // Package-specific setup
+        this.iconPath = new vscode.ThemeIcon('package');
+        this.tooltip = `Go package: ${label}\nPath: ${filePath}`;
+    }
+}
+
+// Union type for all tree items
+export type TreeItem = PackageItem | Item;
