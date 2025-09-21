@@ -36,7 +36,7 @@ export class BenchmarkItem extends vscode.TreeItem {
         filePath: string
     ) {
         super(label, vscode.TreeItemCollapsibleState.Collapsed);
-        this.filePath = filePath; // Ensure it's always set
+        this.filePath = filePath;
 
         this.iconPath = new vscode.ThemeIcon('symbol-function');
         this.tooltip = `Click to run ${label} and discover allocations`;
@@ -82,12 +82,11 @@ export class AllocationItem extends vscode.TreeItem {
     }
 
     private getTooltip(): string {
-        const { flatBytes, cumulativeBytes, functionName } = this.allocationData;
         return [
             'Click to view the source code line\n',
-            `Function: ${functionName}`,
-            `Flat allocation: ${flatBytes}`,
-            `Cumulative allocation: ${cumulativeBytes}`,
+            `Function: ${this.allocationData.functionName}`,
+            `Flat allocation: ${this.allocationData.flatBytes}`,
+            `Cumulative allocation: ${this.allocationData.cumulativeBytes}`,
             `Location: ${path.basename(this.filePath)}:${this.lineNumber}`
         ].join('\n');
     }
@@ -180,6 +179,8 @@ export class Provider implements vscode.TreeDataProvider<Item> {
      * This destroys the existing tree view and builds a new one, just like on initial load.
      */
     refresh(): void {
+        this.cancelAll();
+
         // Reset all cache state
         this.packages = [];
         this.packagesLoaded = false;
@@ -235,7 +236,6 @@ export class Provider implements vscode.TreeDataProvider<Item> {
 
         return undefined;
     }
-
 
     async getChildren(element?: Item): Promise<Item[]> {
         if (!element) {
