@@ -532,20 +532,8 @@ export interface AllocationData {
     functionName: string;
 }
 
-// Base class for all tree items
-export class Item extends vscode.TreeItem {
-    constructor(
-        public readonly label: string,
-        public readonly collapsibleState: vscode.TreeItemCollapsibleState,
-        public readonly contextValue: string
-    ) {
-        super(label, collapsibleState);
-        this.contextValue = contextValue;
-    }
-}
-
 // Specific type for package items with stronger typing
-export class PackageItem extends Item {
+export class PackageItem extends vscode.TreeItem {
     public readonly filePath: string; // Required for packages
     public readonly contextValue: 'package' = 'package';
 
@@ -553,7 +541,8 @@ export class PackageItem extends Item {
         label: string,
         filePath: string
     ) {
-        super(label, vscode.TreeItemCollapsibleState.Expanded, 'package');
+        super(label, vscode.TreeItemCollapsibleState.Expanded);
+        this.contextValue = 'package';
         this.filePath = filePath; // Ensure it's always set
 
         // Package-specific setup
@@ -563,7 +552,7 @@ export class PackageItem extends Item {
 }
 
 // Specific type for benchmark function items with stronger typing
-export class BenchmarkItem extends Item {
+export class BenchmarkItem extends vscode.TreeItem {
     public readonly filePath: string; // Required for benchmarks (package directory)
     public readonly contextValue: 'benchmarkFunction' = 'benchmarkFunction';
     public hasBeenRun: boolean = false; // Track if benchmark has been run
@@ -572,7 +561,8 @@ export class BenchmarkItem extends Item {
         label: string,
         filePath: string
     ) {
-        super(label, vscode.TreeItemCollapsibleState.Collapsed, 'benchmarkFunction');
+        super(label, vscode.TreeItemCollapsibleState.Collapsed);
+        this.contextValue = 'benchmarkFunction';
         this.filePath = filePath; // Ensure it's always set
 
         this.iconPath = new vscode.ThemeIcon('symbol-function');
@@ -581,12 +571,15 @@ export class BenchmarkItem extends Item {
 }
 
 // Specific type for informational items (instructions, errors, messages)
-export class InformationItem extends Item {
+export class InformationItem extends vscode.TreeItem {
+    public readonly contextValue: 'information' = 'information';
+
     constructor(
         label: string,
         iconType: 'error' | 'info' | 'none' = 'none'
     ) {
-        super(label, vscode.TreeItemCollapsibleState.None, 'information');
+        super(label, vscode.TreeItemCollapsibleState.None);
+        this.contextValue = 'information';
 
         // Set appropriate icons based on type
         switch (iconType) {
@@ -600,7 +593,7 @@ export class InformationItem extends Item {
     }
 }
 
-export class AllocationItem extends Item {
+export class AllocationItem extends vscode.TreeItem {
     public readonly filePath: string;
     public readonly lineNumber: number;
     public readonly allocationData: AllocationData;
@@ -612,7 +605,8 @@ export class AllocationItem extends Item {
         lineNumber: number,
         allocationData: AllocationData
     ) {
-        super(label, vscode.TreeItemCollapsibleState.None, 'allocationLine');
+        super(label, vscode.TreeItemCollapsibleState.None);
+        this.contextValue = 'allocationLine';
         this.filePath = filePath;
         this.lineNumber = lineNumber;
         this.allocationData = allocationData;
@@ -635,4 +629,4 @@ export class AllocationItem extends Item {
 
 export type BenchmarkChildItem = InformationItem | AllocationItem;
 
-export type TreeItem = PackageItem | BenchmarkItem | BenchmarkChildItem | Item;
+export type TreeItem = PackageItem | BenchmarkItem | InformationItem | AllocationItem;
