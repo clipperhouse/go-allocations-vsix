@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { Provider, Item, PackageItem, BenchmarkItem, AllocationItem } from './goAllocationsProvider';
+import { Provider, Item, PackageItem, BenchmarkItem, AllocationItem } from './provider';
 
 export function activate(context: vscode.ExtensionContext) {
     const provider = new Provider();
