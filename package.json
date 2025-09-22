@@ -78,7 +78,8 @@
             "goAllocations": [
                 {
                     "id": "goAllocationsExplorer",
-                    "name": "Go Allocations Explorer"
+                    "name": "Go Allocations Explorer",
+                    "icon": "images/memory.goblue.64.png"
                 }
             ]
         },
@@ -110,11 +111,6 @@
             {
                 "command": "goAllocations.test",
                 "title": "Test Extension",
-                "when": "true"
-            },
-            {
-                "command": "goAllocations.testLowestDepth",
-                "title": "Test Lowest Depth",
                 "when": "true"
             }
         ],

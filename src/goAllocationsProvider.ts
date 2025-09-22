@@ -7,9 +7,105 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 
-export class GoAllocationsProvider implements vscode.TreeDataProvider<AllocationItem> {
-    public _onDidChangeTreeData: vscode.EventEmitter<AllocationItem | undefined | null | void> = new vscode.EventEmitter<AllocationItem | undefined | null | void>();
-    readonly onDidChangeTreeData: vscode.Event<AllocationItem | undefined | null | void> = this._onDidChangeTreeData.event;
+export type Item = PackageItem | BenchmarkItem | InformationItem | AllocationItem;
+
+export class PackageItem extends vscode.TreeItem {
+    public readonly filePath: string;
+    public readonly contextValue: 'package' = 'package';
+
+    constructor(
+        label: string,
+        filePath: string
+    ) {
+        super(label, vscode.TreeItemCollapsibleState.Expanded);
+        this.filePath = filePath;
+        this.iconPath = new vscode.ThemeIcon('package');
+        this.tooltip = `Go package: ${label}\nPath: ${filePath}`;
+    }
+}
+
+export class BenchmarkItem extends vscode.TreeItem {
+    public readonly filePath: string;
+    public readonly contextValue: 'benchmarkFunction' = 'benchmarkFunction';
+    public hasBeenRun: boolean = false;
+    public readonly parent: PackageItem;
+
+    constructor(
+        label: string,
+        filePath: string,
+        parent: PackageItem
+    ) {
+        super(label, vscode.TreeItemCollapsibleState.Collapsed);
+        this.filePath = filePath;
+        this.parent = parent;
+
+        this.iconPath = new vscode.ThemeIcon('symbol-function');
+        this.tooltip = `Click to run ${label} and discover allocations`;
+    }
+}
+
+export type BenchmarkChildItem = InformationItem | AllocationItem;
+
+export class InformationItem extends vscode.TreeItem {
+    public readonly contextValue: 'information' = 'information';
+
+    constructor(
+        label: string,
+        iconType: 'error' | 'info' | 'none' = 'none'
+    ) {
+        super(label, vscode.TreeItemCollapsibleState.None);
+
+        if (iconType !== 'none') {
+            this.iconPath = new vscode.ThemeIcon(iconType);
+        }
+    }
+}
+
+const getImageUri = (imageName: string): vscode.Uri => {
+    return vscode.Uri.joinPath(vscode.Uri.file(__dirname), '..', 'images', imageName);
+}
+
+export class AllocationItem extends vscode.TreeItem {
+    public readonly filePath: string;
+    public readonly lineNumber: number;
+    public readonly allocationData: AllocationData;
+    public readonly contextValue: 'allocationLine' = 'allocationLine';
+
+    constructor(
+        label: string,
+        filePath: string,
+        lineNumber: number,
+        allocationData: AllocationData
+    ) {
+        super(label, vscode.TreeItemCollapsibleState.None);
+        this.filePath = filePath;
+        this.lineNumber = lineNumber;
+        this.allocationData = allocationData;
+        this.iconPath = getImageUri('memory.goblue.64.png');
+        this.description = `${allocationData.flatBytes} flat, ${allocationData.cumulativeBytes} cumulative`;
+        this.tooltip = this.getTooltip();
+    }
+
+    private getTooltip(): string {
+        return [
+            'Click to view the source code line\n',
+            `Function: ${this.allocationData.functionName}`,
+            `Flat allocation: ${this.allocationData.flatBytes}`,
+            `Cumulative allocation: ${this.allocationData.cumulativeBytes}`,
+            `Location: ${path.basename(this.filePath)}:${this.lineNumber}`
+        ].join('\n');
+    }
+}
+
+export interface AllocationData {
+    flatBytes: string;
+    cumulativeBytes: string;
+    functionName: string;
+}
+
+export class Provider implements vscode.TreeDataProvider<Item> {
+    public _onDidChangeTreeData: vscode.EventEmitter<Item | undefined | null | void> = new vscode.EventEmitter<Item | undefined | null | void>();
+    readonly onDidChangeTreeData: vscode.Event<Item | undefined | null | void> = this._onDidChangeTreeData.event;
 
     // Cache for discovered packages and their benchmarks
     private packages: { name: string; path: string; benchmarks: string[] }[] = [];
@@ -78,13 +174,9 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         }
     }
 
-    clearBenchmarkRunState(benchmarkItem?: AllocationItem): void {
-        if (benchmarkItem) {
-            benchmarkItem.hasBeenRun = false;
-            this._onDidChangeTreeData.fire(benchmarkItem);
-        } else {
-            this._onDidChangeTreeData.fire();
-        }
+    clearBenchmarkRunState(item: BenchmarkItem): void {
+        item.hasBeenRun = false;
+        this._onDidChangeTreeData.fire(item);
     }
 
     /**
@@ -92,6 +184,8 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
      * This destroys the existing tree view and builds a new one, just like on initial load.
      */
     refresh(): void {
+        this.cancelAll();
+
         // Reset all cache state
         this.packages = [];
         this.packagesLoaded = false;
@@ -107,20 +201,11 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         this._onDidChangeTreeData.fire();
     }
 
-    /**
-     * Method to run a benchmark and get allocation data.
-     * Used internally by getChildren when expanding benchmark function nodes.
-     */
-    async runBenchmark(benchmarkItem: AllocationItem): Promise<AllocationItem[]> {
-        const result = await this.getAllocationData(benchmarkItem);
-        return result;
-    }
-
-    getTreeItem(element: AllocationItem): vscode.TreeItem {
+    getTreeItem(element: Item): vscode.TreeItem {
         return element;
     }
 
-    getParent(element: AllocationItem): vscode.ProviderResult<AllocationItem> {
+    getParent(element: Item): vscode.ProviderResult<Item> {
         // For our tree structure:
         // - Root level has no parent (return undefined)
         // - Package items have no parent (return undefined)
@@ -131,35 +216,25 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
             return undefined; // Root level
         }
 
-        switch (element.contextValue) {
-            case 'package':
-                return undefined; // Package is at root level
-            case 'benchmarkFunction':
-                // Find the parent package by looking at the filePath
-                if (element.filePath) {
-                    const parentPackage = this.packages.find(pkg => pkg.path === element.filePath);
-                    if (parentPackage) {
-                        return new AllocationItem(
-                            this.getPackageLabel(parentPackage),
-                            vscode.TreeItemCollapsibleState.Expanded,
-                            'package',
-                            parentPackage.path
-                        );
-                    }
-                }
-                return undefined;
-            case 'allocationLine':
-                // For allocation lines, we need to reconstruct the benchmark function
-                // This is tricky since we don't store the parent reference
-                // For now, return undefined - this might cause issues with reveal
-                return undefined;
-            default:
-                return undefined;
+        if (element instanceof PackageItem) {
+            return undefined; // Package is at root level
         }
+
+        if (element instanceof BenchmarkItem) {
+            return element.parent;
+        }
+
+        if (element instanceof AllocationItem) {
+            // For allocation lines, we need to reconstruct the benchmark function
+            // This is tricky since we don't store the parent reference
+            // For now, return undefined - this might cause issues with reveal
+            return undefined;
+        }
+
+        return undefined;
     }
 
-
-    async getChildren(element?: AllocationItem): Promise<AllocationItem[]> {
+    async getChildren(element?: Item): Promise<Item[]> {
         if (!element) {
             // If not loaded and not in progress, start loading
             if (!this.discoveryInProgress && !this.packagesLoaded) {
@@ -172,33 +247,30 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
             }
 
             // Always include instructional text at the top
-            const instructionalItem = new AllocationItem(
-                'Click a benchmark below to discover allocations',
-                vscode.TreeItemCollapsibleState.None,
-                'instructional'
+            const instruction = new InformationItem(
+                'Click a benchmark below to discover allocations'
             );
 
             // Return currently discovered packages immediately (even if loading is still in progress)
-            const packageItems = this.packages.map(pkg => new AllocationItem(
+            const packageItems = this.packages.map(pkg => new PackageItem(
                 this.getPackageLabel(pkg),
-                vscode.TreeItemCollapsibleState.Expanded,
-                'package',
                 pkg.path
             ));
 
-            return [instructionalItem, ...packageItems];
+            return [instruction, ...packageItems];
         }
 
-        switch (element.contextValue) {
-            case 'package':
-                return this.getBenchmarkFunctions(element);
-            case 'benchmarkFunction':
-                const allocationData = await this.runBenchmark(element);
-                element.hasBeenRun = true;
-                return allocationData;
-            default:
-                return Promise.resolve([]);
+        if (element instanceof PackageItem) {
+            return this.getBenchmarks(element);
         }
+
+        if (element instanceof BenchmarkItem) {
+            const allocationData = await this.getAllocationData(element);
+            element.hasBeenRun = true;
+            return allocationData;
+        }
+
+        return Promise.resolve([]);
     }
 
     private async loadPackages(): Promise<void> {
@@ -317,52 +389,30 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         }
     }
 
-
-    private async getBenchmarkFunctions(packageItem: AllocationItem): Promise<AllocationItem[]> {
-        if (!packageItem.filePath) {
-            return [];
-        }
-
-        // Find the package in our cache
+    private getBenchmarks(packageItem: PackageItem): BenchmarkItem[] {
         const pkg = this.packages.find(p => p.path === packageItem.filePath);
         if (!pkg) {
-            return [
-                new AllocationItem(
-                    'Package not found in cache',
-                    vscode.TreeItemCollapsibleState.None,
-                    'error'
-                )
-            ];
+            throw new Error('Package not found in cache');
         }
 
-        const benchmarkFunctions: AllocationItem[] = [];
+        const benchmarks: BenchmarkItem[] = [];
 
-        for (const functionName of pkg.benchmarks) {
-            const item = new AllocationItem(
-                functionName,
-                vscode.TreeItemCollapsibleState.Collapsed, // Not expanded by default
-                'benchmarkFunction',
-                packageItem.filePath
+        for (const benchmark of pkg.benchmarks) {
+            const item = new BenchmarkItem(
+                benchmark,
+                packageItem.filePath,
+                packageItem
             );
-            benchmarkFunctions.push(item);
+            benchmarks.push(item);
         }
 
-        // If no benchmarks found, show a message
-        if (benchmarkFunctions.length === 0) {
-            benchmarkFunctions.push(new AllocationItem(
-                'No benchmark functions found',
-                vscode.TreeItemCollapsibleState.None,
-                'noBenchmarks'
-            ));
-        }
-
-        return benchmarkFunctions;
+        return benchmarks;
     }
 
-    async getAllocationData(functionItem: AllocationItem): Promise<AllocationItem[]> {
+    async getAllocationData(benchmarkItem: BenchmarkItem): Promise<BenchmarkChildItem[]> {
         const signal = this.abortSignal();
 
-        if (!functionItem.filePath) {
+        if (!benchmarkItem.filePath) {
             return [];
         }
 
@@ -376,14 +426,14 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
             const tempDir = os.tmpdir();
             const uniqueId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}-${process.pid}`;
             const memprofilePath = path.join(tempDir, `go-allocations-memprofile-${uniqueId}.pb.gz`);
-            const benchmarkName = functionItem.label;
+            const benchmarkName = benchmarkItem.label;
 
             try {
                 // Run the specific benchmark with memory profiling and debug info
                 const { stdout, stderr } = await execAsync(
                     `go test -bench=^${benchmarkName}$ -memprofile=${memprofilePath} -run=^$ -gcflags="all=-N -l"`,
                     {
-                        cwd: functionItem.filePath,
+                        cwd: benchmarkItem.filePath,
                         signal: signal
                     }
                 );
@@ -398,7 +448,7 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
                 }
 
                 // Parse the memory profile using pprof
-                const allocationData = await this.parseMemoryProfile(memprofilePath, functionItem.filePath);
+                const allocationData = await this.parseMemoryProfile(memprofilePath, benchmarkItem.filePath);
 
                 return allocationData;
             } finally {
@@ -412,9 +462,8 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         } catch (error) {
             console.error('Error getting allocation data:', error);
             return [
-                new AllocationItem(
+                new InformationItem(
                     'Error running benchmark with memory profiling',
-                    vscode.TreeItemCollapsibleState.None,
                     'error'
                 )
             ];
@@ -429,8 +478,44 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         return firstDot >= 0 ? afterSlash.slice(firstDot + 1) : afterSlash;
     };
 
-    private async parseMemoryProfile(memprofilePath: string, packagePath: string): Promise<AllocationItem[]> {
+    private async parseMemoryProfile(memprofilePath: string, packagePath: string): Promise<BenchmarkChildItem[]> {
+        /*
+        Example pprof -list output:
+
+ROUTINE ======================== github.com/clipperhouse/uax29/v2.BenchmarkString in /Users/msherman/Documents/code/src/github.com/clipperhouse/uax29/uax29_test.go
+     0     3.77GB (flat, cum) 99.92% of Total
+     .          .     13:func BenchmarkString(b *testing.B) {
+     .          .     14:	for i := 0; i < b.N; i++ {
+     .     3.77GB     15:		alloc()
+     .          .     16:	}
+     .          .     17:}
+ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /Users/msherman/Documents/code/src/github.com/clipperhouse/uax29/uax29_test.go
+3.77GB     3.77GB (flat, cum) 99.92% of Total
+     .          .      9:func alloc() {
+3.77GB     3.77GB     10:	_ = "updated nine times. Hello, world! こんにちは 안녕하세요 مرحبا" + strconv.Itoa(rand.Intn(20))
+     .          .     11:}
+     .          .     12:
+     .          .     13:func BenchmarkString(b *testing.B) {
+     .          .     14:	for i := 0; i < b.N; i++ {
+     .          .     15:		alloc()
+        */
+        /*
+            We only want the flat bytes, that's our definition of where the
+            allocation is. In the example above, the alloc() call on line 15
+            has no flat bytes, the first column. We want the actual allocation
+            on line 10, where the string is created.
+        */
+        /*
+            TODO all this logic can be better
+            We can use the -list argument below to ensure we only
+            see user code -- likely use the module name for that. This
+            would allow removing isUserCode.
+            Then, maybe the regex is too complicated, consider actual parsing.
+            Or maybe the regex is best!
+        */
+
         const signal = this.abortSignal();
+
 
         try {
             // Check if operation was cancelled before parsing
@@ -444,7 +529,8 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
                 signal: signal
             });
 
-            const allocationItems: AllocationItem[] = [];
+
+            const allocationItems: BenchmarkChildItem[] = [];
             const lines = listOutput.split('\n');
 
             let currentFunction = '';
@@ -482,8 +568,6 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
 
                                 const allocationItem = new AllocationItem(
                                     `${codeLine.trim()}`,
-                                    vscode.TreeItemCollapsibleState.None,
-                                    'allocationLine',
                                     currentFile,
                                     lineNumber,
                                     {
@@ -492,8 +576,6 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
                                         functionName: functionName
                                     }
                                 );
-                                // Set the description to show bytes on a separate line
-                                allocationItem.description = `${flatBytes} flat, ${cumulativeBytes} cumulative`;
                                 allocationItems.push(allocationItem);
                             }
                         }
@@ -508,10 +590,9 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
 
             // If no allocation data found, show a message
             if (allocationItems.length === 0) {
-                allocationItems.push(new AllocationItem(
+                allocationItems.push(new InformationItem(
                     'No allocations found',
-                    vscode.TreeItemCollapsibleState.None,
-                    'noAllocations'
+                    'info'
                 ));
             }
 
@@ -519,9 +600,8 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
         } catch (error) {
             console.error('Error parsing memory profile:', error);
             return [
-                new AllocationItem(
+                new InformationItem(
                     'Error parsing memory profile',
-                    vscode.TreeItemCollapsibleState.None,
                     'error'
                 )
             ];
@@ -565,90 +645,5 @@ export class GoAllocationsProvider implements vscode.TreeDataProvider<Allocation
             // Fallback to a simple heuristic if go env fails
             return !filePath.includes('/go/');
         }
-    }
-}
-
-export interface AllocationData {
-    flatBytes: string;
-    cumulativeBytes: string;
-    functionName: string;
-}
-
-export class AllocationItem extends vscode.TreeItem {
-    public readonly filePath?: string;
-    public readonly lineNumber?: number;
-    public readonly allocationData?: AllocationData;
-    public hasBeenRun: boolean = false;
-
-    constructor(
-        public readonly label: string,
-        public readonly collapsibleState: vscode.TreeItemCollapsibleState,
-        public readonly contextValue: string,
-        filePath?: string,
-        lineNumber?: number,
-        allocationData?: AllocationData
-    ) {
-        super(label, collapsibleState);
-        this.contextValue = contextValue;
-        this.filePath = filePath;
-        this.lineNumber = lineNumber;
-        this.allocationData = allocationData;
-
-        // Set appropriate icons and tooltips based on context
-        switch (contextValue) {
-            case 'package':
-                this.iconPath = new vscode.ThemeIcon('package');
-                this.tooltip = `Go package: ${label}${filePath ? `\nPath: ${filePath}` : ''}`;
-                // No command - package nodes only toggle expand/collapse
-                break;
-            case 'benchmarkFunction':
-                this.iconPath = new vscode.ThemeIcon('symbol-function');
-                // Show different tooltip based on whether it's collapsed or expanded
-                if (this.collapsibleState === vscode.TreeItemCollapsibleState.Collapsed) {
-                    this.tooltip = `Click to run ${label} and discover allocations`;
-                } else {
-                    this.tooltip = `Benchmark function: ${label}`;
-                }
-                break;
-            case 'allocationLine':
-                this.iconPath = vscode.Uri.joinPath(vscode.Uri.file(__dirname), '..', 'images', 'memory.goblue.64.png');
-                this.tooltip = this.buildAllocationTooltip();
-                // No command - click will be handled by tree view selection event
-                break;
-            case 'noFiles':
-                this.iconPath = new vscode.ThemeIcon('info');
-                this.tooltip = 'No Go test packages found in workspace';
-                break;
-            case 'noBenchmarks':
-                this.iconPath = new vscode.ThemeIcon('info');
-                this.tooltip = 'No benchmark functions found in this package';
-                break;
-            case 'noAllocations':
-                this.iconPath = new vscode.ThemeIcon('info');
-                this.tooltip = 'No allocation data found for this benchmark';
-                break;
-            case 'instructional':
-                // this.iconPath = new vscode.ThemeIcon('info');
-                break;
-            case 'error':
-                this.iconPath = new vscode.ThemeIcon('error');
-                this.tooltip = 'Error occurred while listing benchmarks';
-                break;
-        }
-    }
-
-    private buildAllocationTooltip(): string {
-        if (!this.allocationData) {
-            return this.label;
-        }
-
-        const { flatBytes, cumulativeBytes, functionName } = this.allocationData;
-        return [
-            'Click to view the source code line\n',
-            `Function: ${functionName}`,
-            `Flat allocation: ${flatBytes}`,
-            `Cumulative allocation: ${cumulativeBytes}`,
-            this.filePath && this.lineNumber ? `Location: ${path.basename(this.filePath)}:${this.lineNumber}` : ''
-        ].filter(line => line).join('\n');
     }
 }
