@@ -115,7 +115,7 @@ export class Provider implements vscode.TreeDataProvider<Item> {
 
     constructor() {
         // Start GoEnvironment initialization immediately
-        this._goPromise = GoEnvironment.New(this.abortController).then(env => {
+        this._goPromise = GoEnvironment.New(this.abortController, vscode.workspace.workspaceFolders).then(env => {
             this._go = env;
             return env;
         });
@@ -183,7 +183,7 @@ export class Provider implements vscode.TreeDataProvider<Item> {
 
         // Reset Go environment
         this._go = null;
-        this._goPromise = GoEnvironment.New(this.abortController).then(env => {
+        this._goPromise = GoEnvironment.New(this.abortController, vscode.workspace.workspaceFolders).then(env => {
             this._go = env;
             return env;
         });
