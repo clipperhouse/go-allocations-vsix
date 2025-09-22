@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { GoEnvironment } from './go';
 
 const execAsync = promisify(exec);
 
@@ -112,13 +113,22 @@ export class Provider implements vscode.TreeDataProvider<Item> {
     private packagesLoaded = false;
     private discoveryInProgress = false;
 
-    // Cache for Go environment variables to avoid shelling out on every isUserCode call
-    private goRoot: string | null = null;
-    private goMod: string | null = null;
-    private goEnvInitialized = false;
-
     constructor() {
-        this.initializeGoEnvironment();
+        // Start GoEnvironment initialization immediately
+        this._goPromise = GoEnvironment.New(this.abortController).then(env => {
+            this._go = env;
+            return env;
+        });
+    }
+
+    private _go: GoEnvironment | null = null;
+    private _goPromise: Promise<GoEnvironment>;
+    private get go(): Promise<GoEnvironment> {
+        if (this._go) {
+            return Promise.resolve(this._go);
+        }
+
+        return this._goPromise;
     }
 
     private abortController: AbortController = new AbortController();
@@ -129,6 +139,9 @@ export class Provider implements vscode.TreeDataProvider<Item> {
     cancelAll(): void {
         this.abortController.abort();
         this.abortController = new AbortController();
+        if (this._go) {
+            this._go.setAbortController(this.abortController);
+        }
     }
 
     private getPackageLabel(pkg: { name: string; path: string; benchmarks: string[] }): string {
@@ -150,29 +163,6 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         return pkg.name;
     }
 
-    private async initializeGoEnvironment(): Promise<void> {
-        const signal = this.abortSignal();
-
-        try {
-            // Get Go environment variables once and cache them
-            const { stdout: goroot } = await execAsync('go env GOROOT', { signal: signal });
-            const { stdout: gomod } = await execAsync('go env GOMOD', { signal: signal });
-
-            this.goRoot = goroot.trim();
-            this.goMod = gomod.trim();
-            this.goEnvInitialized = true;
-        } catch (error) {
-            if (signal.aborted) {
-                console.log('Go environment initialization cancelled');
-                return;
-            }
-            console.error('Error initializing Go environment:', error);
-            // Set fallback values
-            this.goRoot = null;
-            this.goMod = null;
-            this.goEnvInitialized = true;
-        }
-    }
 
     clearBenchmarkRunState(item: BenchmarkItem): void {
         item.hasBeenRun = false;
@@ -191,11 +181,12 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         this.packagesLoaded = false;
         this.discoveryInProgress = false;
 
-        // Re-initialize Go environment variables
-        this.goRoot = null;
-        this.goMod = null;
-        this.goEnvInitialized = false;
-        this.initializeGoEnvironment();
+        // Reset Go environment
+        this._go = null;
+        this._goPromise = GoEnvironment.New(this.abortController).then(env => {
+            this._go = env;
+            return env;
+        });
 
         // Fire tree data change event to refresh the view
         this._onDidChangeTreeData.fire();
@@ -523,12 +514,12 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
                 throw new Error('Operation cancelled');
             }
 
-            // Get the list of functions to find the main allocation function
-            const { stdout: listOutput } = await execAsync(`go tool pprof -list=. ${memprofilePath}`, {
+            const go = await this.go;
+            const cmd = `go tool pprof -list=. ${memprofilePath}`;
+            const { stdout: listOutput } = await execAsync(cmd, {
                 cwd: packagePath,
                 signal: signal
             });
-
 
             const allocationItems: BenchmarkChildItem[] = [];
             const lines = listOutput.split('\n');
@@ -562,7 +553,8 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
 
                         if (lineNumber > 0 && (flatBytes !== '0B' || cumulativeBytes !== '0B')) {
                             // Only show allocations from user code, not runtime
-                            const isUser = await this.isUserCode(currentFile, currentFunction);
+                            const go = await this.go;
+                            const isUser = go.isUserCode(currentFile, currentFunction);
                             if (isUser) {
                                 const functionName = this.shortFunctionName(currentFunction);
 
@@ -605,45 +597,6 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
                     'error'
                 )
             ];
-        }
-    }
-
-    private async isUserCode(filePath: string, functionName: string): Promise<boolean> {
-        // Wait for Go environment to be initialized if not already done
-        if (!this.goEnvInitialized) {
-            await this.initializeGoEnvironment();
-        }
-
-        try {
-            // Use cached Go environment variables
-            const goRoot = this.goRoot;
-            const goMod = this.goMod;
-
-            // If we have a go.mod file, use the module root as the user code boundary
-            if (goMod && goMod !== '/dev/null') {
-                const moduleRoot = path.dirname(goMod);
-                // Check if the file is within the current module
-                if (filePath.startsWith(moduleRoot)) {
-                    return true;
-                }
-            }
-
-            // If the file is in GOROOT, it's standard library
-            if (goRoot && filePath.startsWith(goRoot)) {
-                return false;
-            }
-
-            // If the file is in a vendor directory, it's not user code
-            if (filePath.includes('/vendor/')) {
-                return false;
-            }
-
-            // Default to user code if we can't determine otherwise
-            return true;
-        } catch (error) {
-            console.error('Error determining if code is user code:', error);
-            // Fallback to a simple heuristic if go env fails
-            return !filePath.includes('/go/');
         }
     }
 }
