@@ -18,9 +18,7 @@ export class PackageItem extends vscode.TreeItem {
         filePath: string
     ) {
         super(label, vscode.TreeItemCollapsibleState.Expanded);
-        this.filePath = filePath; // Ensure it's always set
-
-        // Package-specific setup
+        this.filePath = filePath;
         this.iconPath = new vscode.ThemeIcon('package');
         this.tooltip = `Go package: ${label}\nPath: ${filePath}`;
     }
@@ -60,6 +58,10 @@ export class InformationItem extends vscode.TreeItem {
     }
 }
 
+const getImageUri = (imageName: string): vscode.Uri => {
+    return vscode.Uri.joinPath(vscode.Uri.file(__dirname), '..', 'images', imageName);
+}
+
 export class AllocationItem extends vscode.TreeItem {
     public readonly filePath: string;
     public readonly lineNumber: number;
@@ -76,7 +78,7 @@ export class AllocationItem extends vscode.TreeItem {
         this.filePath = filePath;
         this.lineNumber = lineNumber;
         this.allocationData = allocationData;
-        this.iconPath = vscode.Uri.joinPath(vscode.Uri.file(__dirname), '..', 'images', 'memory.goblue.64.png');
+        this.iconPath = getImageUri('memory.goblue.64.png');
         this.description = `${allocationData.flatBytes} flat, ${allocationData.cumulativeBytes} cumulative`;
         this.tooltip = this.getTooltip();
     }
