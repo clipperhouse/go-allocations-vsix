@@ -484,7 +484,43 @@ export class Provider implements vscode.TreeDataProvider<Item> {
     };
 
     private async parseMemoryProfile(memprofilePath: string, packagePath: string): Promise<BenchmarkChildItem[]> {
+        /*
+        Example pprof -list output:
+
+ROUTINE ======================== github.com/clipperhouse/uax29/v2.BenchmarkString in /Users/msherman/Documents/code/src/github.com/clipperhouse/uax29/uax29_test.go
+     0     3.77GB (flat, cum) 99.92% of Total
+     .          .     13:func BenchmarkString(b *testing.B) {
+     .          .     14:	for i := 0; i < b.N; i++ {
+     .     3.77GB     15:		alloc()
+     .          .     16:	}
+     .          .     17:}
+ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /Users/msherman/Documents/code/src/github.com/clipperhouse/uax29/uax29_test.go
+3.77GB     3.77GB (flat, cum) 99.92% of Total
+     .          .      9:func alloc() {
+3.77GB     3.77GB     10:	_ = "updated nine times. Hello, world! こんにちは 안녕하세요 مرحبا" + strconv.Itoa(rand.Intn(20))
+     .          .     11:}
+     .          .     12:
+     .          .     13:func BenchmarkString(b *testing.B) {
+     .          .     14:	for i := 0; i < b.N; i++ {
+     .          .     15:		alloc()
+        */
+        /*
+            We only want the flat bytes, that's our definition of where the
+            allocation is. In the example above, the alloc() call on line 15
+            has no flat bytes, the first column. We want the actual allocation
+            on line 10, where the string is created.
+        */
+        /*
+            TODO all this logic can be better
+            We can use the -list argument below to ensure we only
+            see user code -- likely use the module name for that. This
+            would allow removing isUserCode.
+            Then, maybe the regex is too complicated, consider actual parsing.
+            Or maybe the regex is best!
+        */
+
         const signal = this.abortSignal();
+
 
         try {
             // Check if operation was cancelled before parsing
@@ -497,6 +533,7 @@ export class Provider implements vscode.TreeDataProvider<Item> {
                 cwd: packagePath,
                 signal: signal
             });
+
 
             const allocationItems: BenchmarkChildItem[] = [];
             const lines = listOutput.split('\n');
