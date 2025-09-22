@@ -390,11 +390,6 @@ export class Provider implements vscode.TreeDataProvider<Item> {
     }
 
     private getBenchmarks(packageItem: PackageItem): BenchmarkItem[] {
-        if (!packageItem.filePath) {
-            throw new Error('Package item missing filePath');
-        }
-
-        // Find the package in our cache
         const pkg = this.packages.find(p => p.path === packageItem.filePath);
         if (!pkg) {
             throw new Error('Package not found in cache');
