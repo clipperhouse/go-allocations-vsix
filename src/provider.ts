@@ -452,9 +452,10 @@ export class Provider implements vscode.TreeDataProvider<Item> {
             }
         } catch (error) {
             console.error('Error getting allocation data:', error);
+            const msg = error instanceof Error ? error.message : String(error);
             return [
                 new InformationItem(
-                    'Error running benchmark with memory profiling',
+                    `${msg}`,
                     'error'
                 )
             ];
