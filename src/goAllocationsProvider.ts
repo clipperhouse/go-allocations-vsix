@@ -28,13 +28,16 @@ export class BenchmarkItem extends vscode.TreeItem {
     public readonly filePath: string;
     public readonly contextValue: 'benchmarkFunction' = 'benchmarkFunction';
     public hasBeenRun: boolean = false;
+    public readonly parent: PackageItem;
 
     constructor(
         label: string,
-        filePath: string
+        filePath: string,
+        parent: PackageItem
     ) {
         super(label, vscode.TreeItemCollapsibleState.Collapsed);
         this.filePath = filePath;
+        this.parent = parent;
 
         this.iconPath = new vscode.ThemeIcon('symbol-function');
         this.tooltip = `Click to run ${label} and discover allocations`;
@@ -218,15 +221,7 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         }
 
         if (element instanceof BenchmarkItem) {
-            // Find the parent package by looking at the filePath
-            const parentPackage = this.packages.find(pkg => pkg.path === element.filePath);
-            if (parentPackage) {
-                return new PackageItem(
-                    this.getPackageLabel(parentPackage),
-                    parentPackage.path
-                );
-            }
-            return undefined;
+            return element.parent;
         }
 
         if (element instanceof AllocationItem) {
@@ -410,7 +405,8 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         for (const benchmark of pkg.benchmarks) {
             const item = new BenchmarkItem(
                 benchmark,
-                packageItem.filePath
+                packageItem.filePath,
+                packageItem
             );
             benchmarks.push(item);
         }
