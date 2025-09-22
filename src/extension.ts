@@ -174,7 +174,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(runSingleBenchmark);
 
     const refresh = vscode.commands.registerCommand('goAllocations.refresh',
-        provider.refresh);
+        () => provider.refresh());
     context.subscriptions.push(refresh);
 }
 
