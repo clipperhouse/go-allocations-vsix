@@ -516,7 +516,7 @@ export class Provider implements vscode.TreeDataProvider<Item> {
                 }
 
                 // Parse the memory profile using pprof
-                const allocationData = await this.parseMemoryProfile(memprofilePath, benchmarkItem.filePath);
+                const allocationData = await this.parseMemoryProfile(memprofilePath, benchmarkItem);
 
                 return allocationData;
             } finally {
@@ -547,7 +547,7 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         return firstDot >= 0 ? afterSlash.slice(firstDot + 1) : afterSlash;
     };
 
-    private async parseMemoryProfile(memprofilePath: string, packagePath: string): Promise<BenchmarkChildItem[]> {
+    private async parseMemoryProfile(memprofilePath: string, benchmarkItem: BenchmarkItem): Promise<BenchmarkChildItem[]> {
         /*
         Example pprof -list output:
 
@@ -591,11 +591,10 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
             if (signal.aborted) {
                 throw new Error('Operation cancelled');
             }
-
-            const go = await this.go;
-            const cmd = `go tool pprof -list=. ${memprofilePath}`;
+            const moduleName = benchmarkItem.parent.parent.moduleName;
+            const cmd = `go tool pprof -list=${moduleName} ${memprofilePath}`;
             const { stdout: listOutput } = await execAsync(cmd, {
-                cwd: packagePath,
+                cwd: benchmarkItem.filePath,
                 signal: signal
             });
 
@@ -630,24 +629,19 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
                         const codeLine = lineMatch[4];
 
                         if (lineNumber > 0 && (flatBytes !== '0B' || cumulativeBytes !== '0B')) {
-                            // Only show allocations from user code, not runtime
-                            const go = await this.go;
-                            const isUser = go.isUserCode(currentFile, currentFunction);
-                            if (isUser) {
-                                const functionName = this.shortFunctionName(currentFunction);
+                            const functionName = this.shortFunctionName(currentFunction);
 
-                                const allocationItem = new AllocationItem(
-                                    `${codeLine.trim()}`,
-                                    currentFile,
-                                    lineNumber,
-                                    {
-                                        flatBytes: flatBytes,
-                                        cumulativeBytes: cumulativeBytes,
-                                        functionName: functionName
-                                    }
-                                );
-                                allocationItems.push(allocationItem);
-                            }
+                            const allocationItem = new AllocationItem(
+                                `${codeLine.trim()}`,
+                                currentFile,
+                                lineNumber,
+                                {
+                                    flatBytes: flatBytes,
+                                    cumulativeBytes: cumulativeBytes,
+                                    functionName: functionName
+                                }
+                            );
+                            allocationItems.push(allocationItem);
                         }
                     }
                 }
