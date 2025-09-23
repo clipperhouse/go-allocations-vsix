@@ -495,11 +495,12 @@ export class Provider implements vscode.TreeDataProvider<Item> {
             const uniqueId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}-${process.pid}`;
             const memprofilePath = path.join(tempDir, `go-allocations-memprofile-${uniqueId}.pb.gz`);
             const benchmarkName = benchmarkItem.label;
+            const memprofilerate = 1024 * 64; // 64K
+            const cmd = `go test -bench=^${benchmarkName}$ -memprofile=${memprofilePath} -run=^$ -gcflags="all=-N -l" -memprofilerate=${memprofilerate}`;
 
             try {
-                // Run the specific benchmark with memory profiling and debug info
                 const { stdout, stderr } = await execAsync(
-                    `go test -bench=^${benchmarkName}$ -memprofile=${memprofilePath} -run=^$ -gcflags="all=-N -l"`,
+                    cmd,
                     {
                         cwd: benchmarkItem.filePath,
                         signal: signal
@@ -545,11 +546,11 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         const afterSlash = slash >= 0 ? fullName.slice(slash + 1) : fullName;
         const firstDot = afterSlash.indexOf('.');
         return firstDot >= 0 ? afterSlash.slice(firstDot + 1) : afterSlash;
-    };
+    }
 
-    // More robust regex patterns that handle variations in pprof output
-    private routineRegex = /^ROUTINE\s*=+\s*(.+?)\s+in\s+(.+)$/;
-    private lineRegex = /^\s*(\d+(?:\.\d+)?[KMGT]?B)?\s*(\d+(?:\.\d+)?[KMGT]?B)?\s*(\d+):\s*(.+)$/;
+    private readonly noAllocationsItem = new InformationItem('No allocations found', 'info');
+    private readonly routineRegex = /^ROUTINE\s*=+\s*(.+?)\s+in\s+(.+)$/;
+    private readonly lineRegex = /^\s*(\d+(?:\.\d+)?[KMGT]?B)?\s*(\d+(?:\.\d+)?[KMGT]?B)?\s*(\d+):\s*(.+)$/;
 
     private async parseMemoryProfile(memprofilePath: string, benchmarkItem: BenchmarkItem): Promise<BenchmarkChildItem[]> {
         /*
@@ -597,10 +598,24 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
 
             const moduleName = benchmarkItem.parent.parent.moduleName;
             const cmd = `go tool pprof -list=${moduleName} ${memprofilePath}`;
-            const { stdout: listOutput } = await execAsync(cmd, {
-                cwd: benchmarkItem.filePath,
-                signal: signal
-            });
+
+            let listOutput: string;
+            try {
+                const result = await execAsync(cmd, {
+                    cwd: benchmarkItem.filePath,
+                    signal: signal
+                });
+                listOutput = result.stdout;
+            } catch (error) {
+                const msg = error instanceof Error ? error.message : String(error);
+                if (msg.includes('no matches found for regexp')) {
+                    // This is not an error - it just means no user code allocations
+                    // made it into the memprofile.
+                    return [this.noAllocationsItem];
+                }
+                // Re-throw if it's a different error
+                throw error;
+            }
 
             const allocationItems: BenchmarkChildItem[] = [];
             const lines = listOutput.split('\n');
@@ -657,10 +672,7 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
 
             // If no allocation data found, show a message
             if (allocationItems.length === 0) {
-                allocationItems.push(new InformationItem(
-                    'No allocations found',
-                    'info'
-                ));
+                allocationItems.push(this.noAllocationsItem);
             }
 
             return allocationItems;
