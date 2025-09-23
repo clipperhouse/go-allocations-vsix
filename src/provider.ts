@@ -389,7 +389,7 @@ export class Provider implements vscode.TreeDataProvider<Item> {
                 try {
                     // Get benchmark functions for this package
                     const { stdout: benchmarksOutput } = await execAsync(
-                        'go test -list="^Benchmark[A-Z][^/]*$"',
+                        'go test -list="^Benchmark[_A-Z][^/]*$"',
                         {
                             cwd: packageDir,
                             signal: signal
@@ -663,9 +663,10 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
             return allocationItems;
         } catch (error) {
             console.error('Error parsing memory profile:', error);
+            const msg = error instanceof Error ? error.message : String(error);
             return [
                 new InformationItem(
-                    'Error parsing memory profile',
+                    `${msg}`,
                     'error'
                 )
             ];
