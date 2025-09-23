@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { Provider, Item, PackageItem, BenchmarkItem, AllocationItem } from './provider';
+import { Provider, Item, ModuleItem, PackageItem, BenchmarkItem, AllocationItem } from './provider';
 
 export function activate(context: vscode.ExtensionContext) {
     const provider = new Provider();
@@ -41,28 +41,42 @@ export function activate(context: vscode.ExtensionContext) {
                     return;
                 }
 
-                // Get all root items (packages)
+                // Get all root items (modules)
                 const rootItems = await provider.getChildren();
 
                 // Collect all benchmark functions first
                 const allBenchmarks: { packageItem: Item; benchmarkFunction: Item }[] = [];
 
-                for (const packageItem of rootItems) {
+                for (const rootItem of rootItems) {
                     if (signal.aborted) {
                         return;
                     }
 
-                    if (packageItem instanceof PackageItem) {
-                        // Expand the package node
-                        await treeView.reveal(packageItem, { expand: true });
+                    if (rootItem instanceof ModuleItem) {
+                        // Expand the module node
+                        await treeView.reveal(rootItem, { expand: true });
 
-                        // Get benchmark functions for this package
-                        const benchmarkFunctions = await provider.getChildren(packageItem);
+                        // Get packages for this module
+                        const packageItems = await provider.getChildren(rootItem);
 
-                        // Collect all benchmark functions
-                        for (const benchmarkFunction of benchmarkFunctions) {
-                            if (benchmarkFunction instanceof BenchmarkItem) {
-                                allBenchmarks.push({ packageItem, benchmarkFunction });
+                        for (const packageItem of packageItems) {
+                            if (signal.aborted) {
+                                return;
+                            }
+
+                            if (packageItem instanceof PackageItem) {
+                                // Expand the package node
+                                await treeView.reveal(packageItem, { expand: true });
+
+                                // Get benchmark functions for this package
+                                const benchmarkFunctions = await provider.getChildren(packageItem);
+
+                                // Collect all benchmark functions
+                                for (const benchmarkFunction of benchmarkFunctions) {
+                                    if (benchmarkFunction instanceof BenchmarkItem) {
+                                        allBenchmarks.push({ packageItem, benchmarkFunction });
+                                    }
+                                }
                             }
                         }
                     }

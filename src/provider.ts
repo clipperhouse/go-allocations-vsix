@@ -8,18 +8,36 @@ import { GoEnvironment } from './go';
 
 const execAsync = promisify(exec);
 
-export type Item = PackageItem | BenchmarkItem | InformationItem | AllocationItem;
+export type Item = ModuleItem | PackageItem | BenchmarkItem | InformationItem | AllocationItem;
+
+export class ModuleItem extends vscode.TreeItem {
+    public readonly moduleName: string;
+    public readonly modulePath: string;
+    public readonly contextValue: 'module' = 'module';
+
+    constructor(
+        moduleName: string,
+        modulePath: string
+    ) {
+        super(moduleName, vscode.TreeItemCollapsibleState.Expanded);
+        this.moduleName = moduleName;
+        this.modulePath = modulePath;
+    }
+}
 
 export class PackageItem extends vscode.TreeItem {
     public readonly filePath: string;
     public readonly contextValue: 'package' = 'package';
+    public readonly parent: ModuleItem;
 
     constructor(
         label: string,
-        filePath: string
+        filePath: string,
+        parent: ModuleItem
     ) {
         super(label, vscode.TreeItemCollapsibleState.Expanded);
         this.filePath = filePath;
+        this.parent = parent;
         this.iconPath = new vscode.ThemeIcon('package');
         this.tooltip = `Go package: ${label}\nPath: ${filePath}`;
     }
@@ -108,8 +126,12 @@ export class Provider implements vscode.TreeDataProvider<Item> {
     public _onDidChangeTreeData: vscode.EventEmitter<Item | undefined | null | void> = new vscode.EventEmitter<Item | undefined | null | void>();
     readonly onDidChangeTreeData: vscode.Event<Item | undefined | null | void> = this._onDidChangeTreeData.event;
 
-    // Cache for discovered packages and their benchmarks
-    private packages: { name: string; path: string; benchmarks: string[] }[] = [];
+    // Cache for discovered modules and their packages
+    private modules: {
+        name: string;
+        path: string;
+        packages: { name: string; path: string; benchmarks: string[] }[]
+    }[] = [];
     private packagesLoaded = false;
     private discoveryInProgress = false;
 
@@ -177,7 +199,7 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         this.cancelAll();
 
         // Reset all cache state
-        this.packages = [];
+        this.modules = [];
         this.packagesLoaded = false;
         this.discoveryInProgress = false;
 
@@ -207,8 +229,12 @@ export class Provider implements vscode.TreeDataProvider<Item> {
             return undefined; // Root level
         }
 
+        if (element instanceof ModuleItem) {
+            return undefined; // Module is at root level
+        }
+
         if (element instanceof PackageItem) {
-            return undefined; // Package is at root level
+            return element.parent; // Package's parent is its module
         }
 
         if (element instanceof BenchmarkItem) {
@@ -242,13 +268,17 @@ export class Provider implements vscode.TreeDataProvider<Item> {
                 'Click a benchmark below to discover allocations'
             );
 
-            // Return currently discovered packages immediately (even if loading is still in progress)
-            const packageItems = this.packages.map(pkg => new PackageItem(
-                this.getPackageLabel(pkg),
-                pkg.path
+            // Return currently discovered modules immediately (even if loading is still in progress)
+            const moduleItems = this.modules.map(module => new ModuleItem(
+                module.name,
+                module.path
             ));
 
-            return [instruction, ...packageItems];
+            return [instruction, ...moduleItems];
+        }
+
+        if (element instanceof ModuleItem) {
+            return this.getPackagesForModule(element);
         }
 
         if (element instanceof PackageItem) {
@@ -309,6 +339,27 @@ export class Provider implements vscode.TreeDataProvider<Item> {
                 throw new Error('Operation cancelled');
             }
 
+            // Get the module name for this workspace
+            const { stdout: moduleName } = await execAsync('go list -m', {
+                cwd: rootPath,
+                signal: signal
+            });
+
+            if (!moduleName.trim() || moduleName.trim() === 'command-line-arguments') {
+                return; // Skip if not a valid module
+            }
+
+            // Find or create module entry
+            let module = this.modules.find(m => m.name === moduleName.trim());
+            if (!module) {
+                module = {
+                    name: moduleName.trim(),
+                    path: rootPath,
+                    packages: []
+                };
+                this.modules.push(module);
+            }
+
             // Get all packages first
             const { stdout: packagesOutput } = await execAsync('go list -f "{{.Name}} {{.Dir}}" ./...', {
                 cwd: rootPath,
@@ -355,11 +406,11 @@ export class Provider implements vscode.TreeDataProvider<Item> {
                             throw new Error('Operation cancelled');
                         }
 
-                        // Add package with its benchmarks
+                        // Add package with its benchmarks to the module
                         const pkg = { name: packageName, path: packageDir, benchmarks };
-                        this.packages.push(pkg);
+                        module.packages.push(pkg);
 
-                        // Fire tree data change event to render this package immediately
+                        // Fire tree data change event to render this module immediately
                         this._onDidChangeTreeData.fire();
                     }
                 } catch (packageError) {
@@ -380,8 +431,34 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         }
     }
 
+    private getPackagesForModule(moduleItem: ModuleItem): PackageItem[] {
+        const module = this.modules.find(m => m.path === moduleItem.modulePath);
+        if (!module) {
+            throw new Error('Module not found in cache');
+        }
+
+        const packages: PackageItem[] = [];
+
+        for (const pkg of module.packages) {
+            const item = new PackageItem(
+                this.getPackageLabel(pkg),
+                pkg.path,
+                moduleItem
+            );
+            packages.push(item);
+        }
+
+        return packages;
+    }
+
     private getBenchmarks(packageItem: PackageItem): BenchmarkItem[] {
-        const pkg = this.packages.find(p => p.path === packageItem.filePath);
+        // Find the package in the modules structure
+        const module = this.modules.find(m => m.packages.some(p => p.path === packageItem.filePath));
+        if (!module) {
+            throw new Error('Module not found in cache');
+        }
+
+        const pkg = module.packages.find(p => p.path === packageItem.filePath);
         if (!pkg) {
             throw new Error('Package not found in cache');
         }
