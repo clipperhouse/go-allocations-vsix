@@ -547,6 +547,10 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         return firstDot >= 0 ? afterSlash.slice(firstDot + 1) : afterSlash;
     };
 
+    // More robust regex patterns that handle variations in pprof output
+    private routineRegex = /^ROUTINE\s*=+\s*(.+?)\s+in\s+(.+)$/;
+    private lineRegex = /^\s*(\d+(?:\.\d+)?[KMGT]?B)?\s*(\d+(?:\.\d+)?[KMGT]?B)?\s*(\d+):\s*(.+)$/;
+
     private async parseMemoryProfile(memprofilePath: string, benchmarkItem: BenchmarkItem): Promise<BenchmarkChildItem[]> {
         /*
         Example pprof -list output:
@@ -585,12 +589,12 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
 
         const signal = this.abortSignal();
 
-
         try {
             // Check if operation was cancelled before parsing
             if (signal.aborted) {
                 throw new Error('Operation cancelled');
             }
+
             const moduleName = benchmarkItem.parent.parent.moduleName;
             const cmd = `go tool pprof -list=${moduleName} ${memprofilePath}`;
             const { stdout: listOutput } = await execAsync(cmd, {
@@ -609,7 +613,7 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
                 const trimmedLine = line.trim();
 
                 // Check if this is a function header
-                const functionMatch = trimmedLine.match(/^ROUTINE =+ (.+?) in (.+)$/);
+                const functionMatch = trimmedLine.match(this.routineRegex);
                 if (functionMatch) {
                     currentFunction = functionMatch[1];
                     currentFile = functionMatch[2];
@@ -619,9 +623,7 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
 
                 // Check if we're in a function and this is a line with allocation data
                 if (inFunction && trimmedLine && !trimmedLine.includes('Total:') && !trimmedLine.includes('ROUTINE')) {
-                    // Parse line format: "flatBytes cumulativeBytes lineNumber: code"
-                    // Example: "    2.50MB     5.50MB     36:	s := \"hello\" + strconv.Itoa(rand.Intn(1000))"
-                    const lineMatch = trimmedLine.match(/^\s*(\d+(?:\.\d+)?[KMGT]?B)?\s*(\d+(?:\.\d+)?[KMGT]?B)?\s*(\d+):\s*(.+)$/);
+                    const lineMatch = trimmedLine.match(this.lineRegex);
                     if (lineMatch) {
                         const flatBytes = lineMatch[1] || '0B';
                         const cumulativeBytes = lineMatch[2] || '0B';
@@ -651,6 +653,7 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
                     inFunction = false;
                 }
             }
+
 
             // If no allocation data found, show a message
             if (allocationItems.length === 0) {
