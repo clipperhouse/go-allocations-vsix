@@ -717,4 +717,79 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
             ];
         }
     }
+
+    /**
+     * Run all benchmarks synchronously, one at a time.
+     * Discovers and runs benchmarks as it finds them, no collection needed.
+     * Relies on TreeView.reveal to trigger getChildren automatically.
+     */
+    async runAllBenchmarksSimple(treeView: vscode.TreeView<Item>): Promise<void> {
+        const signal = this.abortSignal();
+
+        try {
+            // Check if cancelled before starting
+            if (signal.aborted) {
+                return;
+            }
+
+            // Get all root items (modules)
+            const rootItems = await this.getChildren();
+
+            for (const rootItem of rootItems) {
+                if (signal.aborted) {
+                    return;
+                }
+
+                if (rootItem instanceof ModuleItem) {
+                    // Expand the module node - this will automatically call getChildren
+                    await treeView.reveal(rootItem, { expand: true });
+
+                    // Get packages for this module
+                    const packageItems = await this.getChildren(rootItem);
+
+                    for (const packageItem of packageItems) {
+                        if (signal.aborted) {
+                            return;
+                        }
+
+                        if (packageItem instanceof PackageItem) {
+                            // Expand the package node - this will automatically call getChildren
+                            await treeView.reveal(packageItem, { expand: true });
+
+                            // Get benchmark functions for this package
+                            const benchmarkFunctions = await this.getChildren(packageItem);
+
+                            // Run benchmarks as we find them
+                            for (const benchmarkFunction of benchmarkFunctions) {
+                                if (signal.aborted) {
+                                    return;
+                                }
+
+                                if (benchmarkFunction instanceof BenchmarkItem) {
+                                    try {
+                                        // Expand the benchmark function node - this will automatically call getChildren and run the benchmark
+                                        await treeView.reveal(benchmarkFunction, { expand: true });
+                                    } catch (error) {
+                                        if (signal.aborted) {
+                                            console.log('Benchmark cancelled:', benchmarkFunction.label);
+                                        } else {
+                                            console.error('Benchmark error:', error);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+        } catch (error) {
+            if (signal.aborted) {
+                console.log('Operation cancelled');
+                throw error;
+            }
+            console.error('Error running all benchmarks:', error);
+            throw error;
+        }
+    }
 }
