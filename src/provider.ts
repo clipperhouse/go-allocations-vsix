@@ -603,6 +603,7 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
                 let currentFunction = '';
                 let currentFile = '';
                 let inFunction = false;
+                let stderr = '';
 
                 const moduleName = benchmarkItem.parent.parent.moduleName;
                 const cmd = 'go';
@@ -617,6 +618,11 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
                 const rl = readline.createInterface({
                     input: child.stdout,
                     crlfDelay: Infinity
+                });
+
+                // Capture stderr output
+                child.stderr?.on('data', (data) => {
+                    stderr += data.toString();
                 });
 
                 rl.on('line', (line) => {
@@ -668,13 +674,25 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
                     resolve(items);
                 });
 
+                // Handle process spawn errors (e.g., command not found)
                 child.on('error', (error) => {
-                    const msg = error instanceof Error ? error.message : String(error);
-                    if (msg.includes('no matches found for regexp')) {
+                    reject(error);
+                });
+
+                child.on('close', (code) => {
+                    if (stderr.includes('no matches found for regexp')) {
                         resolve([this.noAllocationsItem]);
-                    } else {
-                        reject(error);
+                        return;
                     }
+
+                    // If process exited with non-zero code and we have stderr, treat as error
+                    if (code !== 0 && stderr.trim()) {
+                        reject(new Error(`pprof exit code ${code}: ${stderr.trim()}`));
+                        return;
+                    }
+
+                    // If we get here, the process completed successfully
+                    // The readline interface will handle resolving with the parsed items
                 });
             });
 
