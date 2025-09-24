@@ -2,8 +2,9 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
+import * as readline from 'readline';
 import { GoEnvironment } from './go';
 
 const execAsync = promisify(exec);
@@ -599,76 +600,89 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
             const moduleName = benchmarkItem.parent.parent.moduleName;
             const cmd = `go tool pprof -list=${moduleName} ${memprofilePath}`;
 
-            let listOutput: string;
-            try {
-                const result = await execAsync(cmd, {
+            // Use streaming approach for memory efficiency
+            const allocationItems = await new Promise<BenchmarkChildItem[]>((resolve, reject) => {
+                const items: BenchmarkChildItem[] = [];
+                let currentFunction = '';
+                let currentFile = '';
+                let inFunction = false;
+
+                // Parse the command (e.g., "go tool pprof -list=moduleName memprofilePath")
+                const [command, ...args] = cmd.split(' ');
+
+                const child = spawn(command, args, {
                     cwd: benchmarkItem.filePath,
-                    signal: signal
+                    signal,
+                    stdio: ['ignore', 'pipe', 'pipe']
                 });
-                listOutput = result.stdout;
-            } catch (error) {
-                const msg = error instanceof Error ? error.message : String(error);
-                if (msg.includes('no matches found for regexp')) {
-                    // This is not an error - it just means no user code allocations
-                    // made it into the memprofile.
-                    return [this.noAllocationsItem];
-                }
-                // Re-throw if it's a different error
-                throw error;
-            }
 
-            const allocationItems: BenchmarkChildItem[] = [];
-            const lines = listOutput.split('\n');
+                const rl = readline.createInterface({
+                    input: child.stdout,
+                    crlfDelay: Infinity
+                });
 
-            let currentFunction = '';
-            let currentFile = '';
-            let inFunction = false;
+                rl.on('line', (line) => {
+                    const trimmedLine = line.trim();
 
-            for (const line of lines) {
-                const trimmedLine = line.trim();
+                    // Check if this is a function header
+                    const functionMatch = trimmedLine.match(this.routineRegex);
+                    if (functionMatch) {
+                        currentFunction = functionMatch[1];
+                        currentFile = functionMatch[2];
+                        inFunction = true;
+                        return;
+                    }
 
-                // Check if this is a function header
-                const functionMatch = trimmedLine.match(this.routineRegex);
-                if (functionMatch) {
-                    currentFunction = functionMatch[1];
-                    currentFile = functionMatch[2];
-                    inFunction = true;
-                    continue;
-                }
+                    // Check if we're in a function and this is a line with allocation data
+                    if (inFunction && trimmedLine && !trimmedLine.includes('Total:') && !trimmedLine.includes('ROUTINE')) {
+                        const lineMatch = trimmedLine.match(this.lineRegex);
+                        if (lineMatch) {
+                            const flatBytes = lineMatch[1] || '0B';
+                            const cumulativeBytes = lineMatch[2] || '0B';
+                            const lineNumber = parseInt(lineMatch[3]);
+                            const codeLine = lineMatch[4];
 
-                // Check if we're in a function and this is a line with allocation data
-                if (inFunction && trimmedLine && !trimmedLine.includes('Total:') && !trimmedLine.includes('ROUTINE')) {
-                    const lineMatch = trimmedLine.match(this.lineRegex);
-                    if (lineMatch) {
-                        const flatBytes = lineMatch[1] || '0B';
-                        const cumulativeBytes = lineMatch[2] || '0B';
-                        const lineNumber = parseInt(lineMatch[3]);
-                        const codeLine = lineMatch[4];
+                            if (lineNumber > 0 && (flatBytes !== '0B' || cumulativeBytes !== '0B')) {
+                                const functionName = this.shortFunctionName(currentFunction);
 
-                        if (lineNumber > 0 && (flatBytes !== '0B' || cumulativeBytes !== '0B')) {
-                            const functionName = this.shortFunctionName(currentFunction);
-
-                            const allocationItem = new AllocationItem(
-                                `${codeLine.trim()}`,
-                                currentFile,
-                                lineNumber,
-                                {
-                                    flatBytes: flatBytes,
-                                    cumulativeBytes: cumulativeBytes,
-                                    functionName: functionName
-                                }
-                            );
-                            allocationItems.push(allocationItem);
+                                const allocationItem = new AllocationItem(
+                                    `${codeLine.trim()}`,
+                                    currentFile,
+                                    lineNumber,
+                                    {
+                                        flatBytes: flatBytes,
+                                        cumulativeBytes: cumulativeBytes,
+                                        functionName: functionName
+                                    }
+                                );
+                                items.push(allocationItem);
+                            }
                         }
                     }
-                }
 
-                // Reset when we hit an empty line or new function
-                if (trimmedLine === '' || trimmedLine.includes('ROUTINE')) {
-                    inFunction = false;
-                }
-            }
+                    // Reset when we hit an empty line or new function
+                    if (trimmedLine === '' || trimmedLine.includes('ROUTINE')) {
+                        inFunction = false;
+                    }
+                });
 
+                rl.on('close', () => {
+                    resolve(items);
+                });
+
+                child.on('error', (error) => {
+                    const msg = error instanceof Error ? error.message : String(error);
+                    if (msg.includes('no matches found for regexp')) {
+                        resolve([this.noAllocationsItem]);
+                    } else {
+                        reject(error);
+                    }
+                });
+
+                child.stderr.on('data', (data) => {
+                    // Handle stderr if needed
+                });
+            });
 
             // If no allocation data found, show a message
             if (allocationItems.length === 0) {
