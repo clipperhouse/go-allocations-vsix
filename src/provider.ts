@@ -754,21 +754,21 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
                             await treeView.reveal(packageItem, { expand: true });
 
                             // Get benchmark functions for this package
-                            const benchmarkFunctions = await this.getChildren(packageItem);
+                            const benchmarkItems = await this.getChildren(packageItem);
 
                             // Run benchmarks as we find them
-                            for (const benchmarkFunction of benchmarkFunctions) {
+                            for (const benchmarkItem of benchmarkItems) {
                                 if (signal.aborted) {
                                     return;
                                 }
 
-                                if (benchmarkFunction instanceof BenchmarkItem) {
+                                if (benchmarkItem instanceof BenchmarkItem) {
                                     try {
-                                        this.clearBenchmarkRunState(benchmarkFunction)
-                                        await treeView.reveal(benchmarkFunction, { expand: true });
+                                        this.clearBenchmarkRunState(benchmarkItem)
+                                        await treeView.reveal(benchmarkItem, { expand: true });
                                     } catch (error) {
                                         if (signal.aborted) {
-                                            console.log('Benchmark cancelled:', benchmarkFunction.label);
+                                            console.log('Benchmark cancelled:', benchmarkItem.label);
                                         } else {
                                             console.error('Benchmark error:', error);
                                         }
