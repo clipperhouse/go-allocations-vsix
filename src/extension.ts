@@ -82,8 +82,7 @@ export function activate(context: vscode.ExtensionContext) {
                     }
                 }
 
-                // Simple semaphore: run 4 benchmarks concurrently
-                const concurrency = 4;
+                const concurrency = 2;
                 const semaphore = new Array(concurrency).fill(null);
 
                 const runBenchmark = async (benchmark: { packageItem: Item; benchmarkFunction: Item }) => {

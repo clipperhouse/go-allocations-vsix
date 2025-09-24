@@ -2,8 +2,10 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
+import * as readline from 'readline';
+import { quote } from 'shell-quote';
 import { GoEnvironment } from './go';
 
 const execAsync = promisify(exec);
@@ -494,12 +496,16 @@ export class Provider implements vscode.TreeDataProvider<Item> {
             const tempDir = os.tmpdir();
             const uniqueId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}-${process.pid}`;
             const memprofilePath = path.join(tempDir, `go-allocations-memprofile-${uniqueId}.pb.gz`);
-            const benchmarkName = benchmarkItem.label;
+            const benchmarkName = typeof benchmarkItem.label === 'string' ? benchmarkItem.label : benchmarkItem.label?.label || '';
+            const escapedBenchmarkName = quote([benchmarkName]);
+            const memprofilerate = 1024 * 64; // 64K
+
+            // Use shell-quote to safely escape the benchmark name
+            const cmd = `go test -bench=^${escapedBenchmarkName}$ -memprofile=${memprofilePath} -run=^$ -gcflags="all=-N -l" -memprofilerate=${memprofilerate}`;
 
             try {
-                // Run the specific benchmark with memory profiling and debug info
                 const { stdout, stderr } = await execAsync(
-                    `go test -bench=^${benchmarkName}$ -memprofile=${memprofilePath} -run=^$ -gcflags="all=-N -l"`,
+                    cmd,
                     {
                         cwd: benchmarkItem.filePath,
                         signal: signal
@@ -545,7 +551,11 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         const afterSlash = slash >= 0 ? fullName.slice(slash + 1) : fullName;
         const firstDot = afterSlash.indexOf('.');
         return firstDot >= 0 ? afterSlash.slice(firstDot + 1) : afterSlash;
-    };
+    }
+
+    private readonly noAllocationsItem = new InformationItem('No allocations found', 'info');
+    private readonly routineRegex = /^ROUTINE\s*=+\s*(.+?)\s+in\s+(.+)$/;
+    private readonly lineRegex = /^\s*(\d+(?:\.\d+)?[KMGT]?B)?\s*(\d+(?:\.\d+)?[KMGT]?B)?\s*(\d+):\s*(.+)$/;
 
     private async parseMemoryProfile(memprofilePath: string, benchmarkItem: BenchmarkItem): Promise<BenchmarkChildItem[]> {
         /*
@@ -585,82 +595,117 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
 
         const signal = this.abortSignal();
 
-
         try {
             // Check if operation was cancelled before parsing
             if (signal.aborted) {
                 throw new Error('Operation cancelled');
             }
-            const moduleName = benchmarkItem.parent.parent.moduleName;
-            const cmd = `go tool pprof -list=${moduleName} ${memprofilePath}`;
-            const { stdout: listOutput } = await execAsync(cmd, {
-                cwd: benchmarkItem.filePath,
-                signal: signal
-            });
 
-            const allocationItems: BenchmarkChildItem[] = [];
-            const lines = listOutput.split('\n');
+            // Use streaming approach for memory efficiency
+            const results = await new Promise<BenchmarkChildItem[]>((resolve, reject) => {
+                const items: BenchmarkChildItem[] = [];
+                let currentFunction = '';
+                let currentFile = '';
+                let inFunction = false;
+                let stderr = '';
 
-            let currentFunction = '';
-            let currentFile = '';
-            let inFunction = false;
+                const moduleName = benchmarkItem.parent.parent.moduleName;
+                const cmd = 'go';
+                const args = ['tool', 'pprof', `-list=${moduleName}`, memprofilePath];
 
-            for (const line of lines) {
-                const trimmedLine = line.trim();
+                const child = spawn(cmd, args, {
+                    cwd: benchmarkItem.filePath,
+                    signal,
+                    stdio: ['ignore', 'pipe', 'pipe']
+                });
 
-                // Check if this is a function header
-                const functionMatch = trimmedLine.match(/^ROUTINE =+ (.+?) in (.+)$/);
-                if (functionMatch) {
-                    currentFunction = functionMatch[1];
-                    currentFile = functionMatch[2];
-                    inFunction = true;
-                    continue;
-                }
+                const rl = readline.createInterface({
+                    input: child.stdout,
+                    crlfDelay: Infinity
+                });
 
-                // Check if we're in a function and this is a line with allocation data
-                if (inFunction && trimmedLine && !trimmedLine.includes('Total:') && !trimmedLine.includes('ROUTINE')) {
-                    // Parse line format: "flatBytes cumulativeBytes lineNumber: code"
-                    // Example: "    2.50MB     5.50MB     36:	s := \"hello\" + strconv.Itoa(rand.Intn(1000))"
-                    const lineMatch = trimmedLine.match(/^\s*(\d+(?:\.\d+)?[KMGT]?B)?\s*(\d+(?:\.\d+)?[KMGT]?B)?\s*(\d+):\s*(.+)$/);
-                    if (lineMatch) {
-                        const flatBytes = lineMatch[1] || '0B';
-                        const cumulativeBytes = lineMatch[2] || '0B';
-                        const lineNumber = parseInt(lineMatch[3]);
-                        const codeLine = lineMatch[4];
+                // Capture stderr output
+                child.stderr?.on('data', (data) => {
+                    stderr += data.toString();
+                });
 
-                        if (lineNumber > 0 && (flatBytes !== '0B' || cumulativeBytes !== '0B')) {
-                            const functionName = this.shortFunctionName(currentFunction);
+                rl.on('line', (line) => {
+                    const trimmedLine = line.trim();
 
-                            const allocationItem = new AllocationItem(
-                                `${codeLine.trim()}`,
-                                currentFile,
-                                lineNumber,
-                                {
-                                    flatBytes: flatBytes,
-                                    cumulativeBytes: cumulativeBytes,
-                                    functionName: functionName
-                                }
-                            );
-                            allocationItems.push(allocationItem);
+                    // Check if this is a function header
+                    const functionMatch = trimmedLine.match(this.routineRegex);
+                    if (functionMatch) {
+                        currentFunction = functionMatch[1];
+                        currentFile = functionMatch[2];
+                        inFunction = true;
+                        return;
+                    }
+
+                    // Check if we're in a function and this is a line with allocation data
+                    if (inFunction && trimmedLine && !trimmedLine.includes('Total:') && !trimmedLine.includes('ROUTINE')) {
+                        const lineMatch = trimmedLine.match(this.lineRegex);
+                        if (lineMatch) {
+                            const flatBytes = lineMatch[1] || '0B';
+                            const cumulativeBytes = lineMatch[2] || '0B';
+                            const lineNumber = parseInt(lineMatch[3]);
+                            const codeLine = lineMatch[4];
+
+                            if (lineNumber > 0 && (flatBytes !== '0B' || cumulativeBytes !== '0B')) {
+                                const functionName = this.shortFunctionName(currentFunction);
+
+                                const allocationItem = new AllocationItem(
+                                    `${codeLine.trim()}`,
+                                    currentFile,
+                                    lineNumber,
+                                    {
+                                        flatBytes: flatBytes,
+                                        cumulativeBytes: cumulativeBytes,
+                                        functionName: functionName
+                                    }
+                                );
+                                items.push(allocationItem);
+                            }
                         }
                     }
-                }
 
-                // Reset when we hit an empty line or new function
-                if (trimmedLine === '' || trimmedLine.includes('ROUTINE')) {
-                    inFunction = false;
-                }
-            }
+                    // Reset when we hit an empty line or new function
+                    if (trimmedLine === '' || trimmedLine.includes('ROUTINE')) {
+                        inFunction = false;
+                    }
+                });
+
+                rl.on('close', () => {
+                    resolve(items);
+                });
+
+                // Handle process spawn errors (e.g., command not found)
+                child.on('error', (error) => {
+                    reject(error);
+                });
+
+                child.on('close', (code) => {
+                    if (stderr.includes('no matches found for regexp')) {
+                        resolve([this.noAllocationsItem]);
+                        return;
+                    }
+
+                    // If process exited with non-zero code and we have stderr, treat as error
+                    if (code !== 0 && stderr.trim()) {
+                        reject(new Error(`pprof exit code ${code}: ${stderr.trim()}`));
+                        return;
+                    }
+
+                    // If we get here, the process completed successfully
+                    // The readline interface will handle resolving with the parsed items
+                });
+            });
 
             // If no allocation data found, show a message
-            if (allocationItems.length === 0) {
-                allocationItems.push(new InformationItem(
-                    'No allocations found',
-                    'info'
-                ));
+            if (results.length === 0) {
+                results.push(this.noAllocationsItem);
             }
 
-            return allocationItems;
+            return results;
         } catch (error) {
             console.error('Error parsing memory profile:', error);
             const msg = error instanceof Error ? error.message : String(error);
