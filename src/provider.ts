@@ -597,20 +597,18 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
                 throw new Error('Operation cancelled');
             }
 
-            const moduleName = benchmarkItem.parent.parent.moduleName;
-            const cmd = `go tool pprof -list=${moduleName} ${memprofilePath}`;
-
             // Use streaming approach for memory efficiency
-            const allocationItems = await new Promise<BenchmarkChildItem[]>((resolve, reject) => {
+            const results = await new Promise<BenchmarkChildItem[]>((resolve, reject) => {
                 const items: BenchmarkChildItem[] = [];
                 let currentFunction = '';
                 let currentFile = '';
                 let inFunction = false;
 
-                // Parse the command (e.g., "go tool pprof -list=moduleName memprofilePath")
-                const [command, ...args] = cmd.split(' ');
+                const moduleName = benchmarkItem.parent.parent.moduleName;
+                const cmd = 'go';
+                const args = ['tool', 'pprof', `-list=${moduleName}`, memprofilePath];
 
-                const child = spawn(command, args, {
+                const child = spawn(cmd, args, {
                     cwd: benchmarkItem.filePath,
                     signal,
                     stdio: ['ignore', 'pipe', 'pipe']
@@ -678,18 +676,14 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
                         reject(error);
                     }
                 });
-
-                child.stderr.on('data', (data) => {
-                    // Handle stderr if needed
-                });
             });
 
             // If no allocation data found, show a message
-            if (allocationItems.length === 0) {
-                allocationItems.push(this.noAllocationsItem);
+            if (results.length === 0) {
+                results.push(this.noAllocationsItem);
             }
 
-            return allocationItems;
+            return results;
         } catch (error) {
             console.error('Error parsing memory profile:', error);
             const msg = error instanceof Error ? error.message : String(error);
