@@ -5,6 +5,7 @@ import * as os from 'os';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import * as readline from 'readline';
+import { quote } from 'shell-quote';
 import { GoEnvironment } from './go';
 
 const execAsync = promisify(exec);
@@ -495,9 +496,12 @@ export class Provider implements vscode.TreeDataProvider<Item> {
             const tempDir = os.tmpdir();
             const uniqueId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}-${process.pid}`;
             const memprofilePath = path.join(tempDir, `go-allocations-memprofile-${uniqueId}.pb.gz`);
-            const benchmarkName = benchmarkItem.label;
+            const benchmarkName = typeof benchmarkItem.label === 'string' ? benchmarkItem.label : benchmarkItem.label?.label || '';
+            const escapedBenchmarkName = quote([benchmarkName]);
             const memprofilerate = 1024 * 64; // 64K
-            const cmd = `go test -bench=^${benchmarkName}$ -memprofile=${memprofilePath} -run=^$ -gcflags="all=-N -l" -memprofilerate=${memprofilerate}`;
+
+            // Use shell-quote to safely escape the benchmark name
+            const cmd = `go test -bench=^${escapedBenchmarkName}$ -memprofile=${memprofilePath} -run=^$ -gcflags="all=-N -l" -memprofilerate=${memprofilerate}`;
 
             try {
                 const { stdout, stderr } = await execAsync(
