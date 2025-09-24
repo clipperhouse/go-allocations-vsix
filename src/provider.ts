@@ -764,7 +764,7 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
 
                                 if (benchmarkFunction instanceof BenchmarkItem) {
                                     try {
-                                        // Expand the benchmark function node - this will automatically call getChildren and run the benchmark
+                                        this.clearBenchmarkRunState(benchmarkFunction)
                                         await treeView.reveal(benchmarkFunction, { expand: true });
                                     } catch (error) {
                                         if (signal.aborted) {
