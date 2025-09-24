@@ -48,7 +48,6 @@ export class PackageItem extends vscode.TreeItem {
 export class BenchmarkItem extends vscode.TreeItem {
     public readonly filePath: string;
     public readonly contextValue: 'benchmarkFunction' = 'benchmarkFunction';
-    public hasBeenRun: boolean = false;
     public readonly parent: PackageItem;
 
     constructor(
@@ -189,7 +188,6 @@ export class Provider implements vscode.TreeDataProvider<Item> {
 
 
     clearBenchmarkRunState(item: BenchmarkItem): void {
-        item.hasBeenRun = false;
         this._onDidChangeTreeData.fire(item);
     }
 
@@ -289,7 +287,6 @@ export class Provider implements vscode.TreeDataProvider<Item> {
 
         if (element instanceof BenchmarkItem) {
             const allocationData = await this.getAllocationData(element);
-            element.hasBeenRun = true;
             return allocationData;
         }
 
