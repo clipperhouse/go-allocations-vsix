@@ -7,7 +7,7 @@ on:
     branches: [ main ]
 
 jobs:
-  compile:
+  build-and-test:
     runs-on: ubuntu-latest
 
     steps:
@@ -23,5 +23,14 @@ jobs:
     - name: Install dependencies
       run: npm ci
 
-    - name: Compile TypeScript
-      run: npm run compile
+    - name: Type check
+      run: npm run typecheck
+
+    - name: Build extension
+      run: npm run build
+
+    - name: Install VSCE
+      run: npm install -g @vscode/vsce
+
+    - name: Package extension
+      run: vsce package
