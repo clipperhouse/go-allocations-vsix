@@ -3,7 +3,7 @@
     "displayName": "Go Allocations Explorer",
     "description": "An extension that helps locate Go allocations, using your benchmarks.",
     "icon": "images/memory.goblue.png",
-    "version": "0.2.1",
+    "version": "0.3.1",
     "publisher": "Clipperhouse",
     "engines": {
         "vscode": "^1.74.0"
@@ -142,14 +142,20 @@
         }
     },
     "scripts": {
-        "vscode:prepublish": "npm run compile",
-        "compile": "tsc -p ./",
-        "watch": "tsc -watch -p ./"
+        "vscode:prepublish": "npm run clean && npm run esbuild-prod",
+        "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
+        "esbuild-prod": "npm run esbuild-base -- --minify",
+        "build": "npm run clean && npm run esbuild-base -- --sourcemap",
+        "clean": "rm -rf out && mkdir -p out",
+        "watch": "npm run clean && npm run esbuild-base -- --sourcemap --watch",
+        "typecheck": "tsc --noEmit",
+        "typecheck:watch": "tsc --noEmit --watch"
     },
     "devDependencies": {
         "@types/node": "16.x",
         "@types/shell-quote": "^1.7.5",
         "@types/vscode": "^1.74.0",
+        "esbuild": "^0.25.10",
         "typescript": "^4.9.4"
     },
     "dependencies": {
