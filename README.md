@@ -2,13 +2,12 @@
 
 An extension that helps locate Go allocations, using your benchmarks.
 
-<img src="https://raw.githubusercontent.com/clipperhouse/go-allocations-vsix/main/images/Screenshot2.png" width="600" alt="Go Allocations Explorer Screenshot">
+<img src="https://raw.githubusercontent.com/clipperhouse/go-allocations-vsix/main/images/Screenshot2.png" width="560" alt="Go Allocations Explorer Screenshot">
 
 ## Quick Start
 
 1. **Open a Go workspace (module)** that contains benchmarks
-2. **Find the extension** in the Activity Bar - look for the "Go Allocations Explorer" icon
-3. **Browse the tree structure**:
+2. **Click the Go Allocations Explorer** in the Activity Bar
    - Packages containing benchmark files
    - Individual benchmark functions
 4. **Run benchmarks**:
