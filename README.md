@@ -2,7 +2,7 @@
 
 An extension that helps locate Go allocations, using your benchmarks.
 
-<img src="https://raw.githubusercontent.com/clipperhouse/go-allocations-vsix/main/images/Screenshot2.png" width="560" alt="Go Allocations Explorer Screenshot">
+<img src="https://raw.githubusercontent.com/clipperhouse/go-allocations-vsix/main/Screenshot.png" width="560" alt="Go Allocations Explorer Screenshot">
 
 ## Quick Start
 
