@@ -7,6 +7,7 @@ import { promisify } from 'util';
 import * as readline from 'readline';
 import { quote } from 'shell-quote';
 import { GoEnvironment } from './go';
+import { Sema } from 'async-sema';
 
 const execAsync = promisify(exec);
 
@@ -48,7 +49,6 @@ export class PackageItem extends vscode.TreeItem {
 export class BenchmarkItem extends vscode.TreeItem {
     public readonly filePath: string;
     public readonly contextValue: 'benchmarkFunction' = 'benchmarkFunction';
-    public hasBeenRun: boolean = false;
     public readonly parent: PackageItem;
 
     constructor(
@@ -189,7 +189,6 @@ export class Provider implements vscode.TreeDataProvider<Item> {
 
 
     clearBenchmarkRunState(item: BenchmarkItem): void {
-        item.hasBeenRun = false;
         this._onDidChangeTreeData.fire(item);
     }
 
@@ -289,7 +288,6 @@ export class Provider implements vscode.TreeDataProvider<Item> {
 
         if (element instanceof BenchmarkItem) {
             const allocationData = await this.getAllocationData(element);
-            element.hasBeenRun = true;
             return allocationData;
         }
 
@@ -715,6 +713,106 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
                     'error'
                 )
             ];
+        }
+    }
+
+    /**
+     * Discovers all benchmarks, and runs them with semaphore control.
+     * Relies on TreeView.reveal to trigger getChildren automatically.
+     */
+    async runAllBenchmarksSimple(treeView: vscode.TreeView<Item>): Promise<void> {
+        const signal = this.abortSignal();
+
+        try {
+            // Check if cancelled before starting
+            if (signal.aborted) {
+                return;
+            }
+
+            // Get all root items (modules)
+            const rootItems = await this.getChildren();
+
+            // First, discover all benchmarks
+            const allBenchmarks: BenchmarkItem[] = [];
+            for (const rootItem of rootItems) {
+                if (signal.aborted) {
+                    return;
+                }
+
+                if (rootItem instanceof ModuleItem) {
+                    // Expand the module node - this will automatically call getChildren
+                    await treeView.reveal(rootItem, { expand: true });
+
+                    // Get packages for this module
+                    const packageItems = await this.getChildren(rootItem);
+
+                    for (const packageItem of packageItems) {
+                        if (signal.aborted) {
+                            return;
+                        }
+
+                        if (packageItem instanceof PackageItem) {
+                            // Expand the package node - this will automatically call getChildren
+                            await treeView.reveal(packageItem, { expand: true });
+
+                            // Get benchmark functions for this package
+                            const benchmarkItems = await this.getChildren(packageItem);
+
+                            // Collect all benchmarks
+                            for (const benchmarkItem of benchmarkItems) {
+                                if (benchmarkItem instanceof BenchmarkItem) {
+                                    allBenchmarks.push(benchmarkItem);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            const sema = new Sema(2);
+            const promises: Promise<void>[] = [];
+
+            for (const benchmarkItem of allBenchmarks) {
+                if (signal.aborted) {
+                    return;
+                }
+
+                const p = (async () => {
+                    await sema.acquire();
+                    try {
+                        if (signal.aborted) {
+                            return;
+                        }
+                        // Because TreeView.reveal is Thenable which doesn't have .catch,
+                        // we need to wrap in Promise.resolve.
+                        const r = treeView.reveal(benchmarkItem, { expand: true });
+                        await Promise.resolve(r);
+                    } catch (error: any) {
+                        if (signal.aborted) {
+                            console.log('Benchmark cancelled:', benchmarkItem.label);
+                        } else {
+                            console.error('Benchmark error:', error);
+                        }
+                    } finally {
+                        sema.release();
+                    }
+                })();
+
+                promises.push(p);
+            }
+
+            // Wait for all benchmarks to complete
+            await Promise.all(promises);
+
+            // Drain the semaphore to ensure all operations are complete
+            await sema.drain();
+        } catch (error) {
+            if (signal.aborted) {
+                console.log('Operation cancelled');
+                throw error;
+            }
+            console.error('Error running all benchmarks:', error);
+            throw error;
         }
     }
 }
