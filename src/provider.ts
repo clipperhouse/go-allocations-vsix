@@ -7,6 +7,7 @@ import { promisify } from 'util';
 import * as readline from 'readline';
 import { quote } from 'shell-quote';
 import { GoEnvironment } from './go';
+import { Sema } from 'async-sema';
 
 const execAsync = promisify(exec);
 
@@ -716,8 +717,7 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
     }
 
     /**
-     * Run all benchmarks synchronously, one at a time.
-     * Discovers and runs benchmarks as it finds them, no collection needed.
+     * Discovers all benchmarks, and runs them with semaphore control.
      * Relies on TreeView.reveal to trigger getChildren automatically.
      */
     async runAllBenchmarksSimple(treeView: vscode.TreeView<Item>): Promise<void> {
@@ -732,6 +732,8 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
             // Get all root items (modules)
             const rootItems = await this.getChildren();
 
+            // First, discover all benchmarks
+            const allBenchmarks: BenchmarkItem[] = [];
             for (const rootItem of rootItems) {
                 if (signal.aborted) {
                     return;
@@ -756,23 +758,10 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
                             // Get benchmark functions for this package
                             const benchmarkItems = await this.getChildren(packageItem);
 
-                            // Run benchmarks as we find them
+                            // Collect all benchmarks
                             for (const benchmarkItem of benchmarkItems) {
-                                if (signal.aborted) {
-                                    return;
-                                }
-
                                 if (benchmarkItem instanceof BenchmarkItem) {
-                                    try {
-                                        this.clearBenchmarkRunState(benchmarkItem)
-                                        await treeView.reveal(benchmarkItem, { expand: true });
-                                    } catch (error) {
-                                        if (signal.aborted) {
-                                            console.log('Benchmark cancelled:', benchmarkItem.label);
-                                        } else {
-                                            console.error('Benchmark error:', error);
-                                        }
-                                    }
+                                    allBenchmarks.push(benchmarkItem);
                                 }
                             }
                         }
@@ -780,6 +769,43 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
                 }
             }
 
+            const sema = new Sema(2);
+            const promises: Promise<void>[] = [];
+
+            for (const benchmarkItem of allBenchmarks) {
+                if (signal.aborted) {
+                    return;
+                }
+
+                const p = (async () => {
+                    await sema.acquire();
+                    try {
+                        if (signal.aborted) {
+                            return;
+                        }
+                        // Because TreeView.reveal is Thenable which doesn't have .catch,
+                        // we need to wrap in Promise.resolve.
+                        const r = treeView.reveal(benchmarkItem, { expand: true });
+                        await Promise.resolve(r);
+                    } catch (error: any) {
+                        if (signal.aborted) {
+                            console.log('Benchmark cancelled:', benchmarkItem.label);
+                        } else {
+                            console.error('Benchmark error:', error);
+                        }
+                    } finally {
+                        sema.release();
+                    }
+                })();
+
+                promises.push(p);
+            }
+
+            // Wait for all benchmarks to complete
+            await Promise.all(promises);
+
+            // Drain the semaphore to ensure all operations are complete
+            await sema.drain();
         } catch (error) {
             if (signal.aborted) {
                 console.log('Operation cancelled');
