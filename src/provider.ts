@@ -12,7 +12,6 @@ const execAsync = promisify(exec);
 
 export type Item = ModuleItem | PackageItem | BenchmarkItem | InformationItem | AllocationItem;
 
-
 export class InformationItem extends vscode.TreeItem {
     public readonly contextValue: 'information' = 'information';
 
@@ -59,8 +58,33 @@ export class PackageItem extends vscode.TreeItem {
         this.iconPath = new vscode.ThemeIcon('package');
         this.tooltip = `Go package: ${label}\nPath: ${filePath}`;
     }
-}
 
+    getChildren(modules: ModuleCache[]): BenchmarkItem[] {
+        // Find the package in the modules structure
+        const module = modules.find(m => m.packages.some(p => p.path === this.filePath));
+        if (!module) {
+            throw new Error('Module not found in cache');
+        }
+
+        const pkg = module.packages.find(p => p.path === this.filePath);
+        if (!pkg) {
+            throw new Error('Package not found in cache');
+        }
+
+        const benchmarks: BenchmarkItem[] = [];
+
+        for (const benchmark of pkg.benchmarks) {
+            const item = new BenchmarkItem(
+                benchmark,
+                this.filePath,
+                this
+            );
+            benchmarks.push(item);
+        }
+
+        return benchmarks;
+    }
+}
 
 export class BenchmarkItem extends vscode.TreeItem {
     public readonly filePath: string;
@@ -349,16 +373,22 @@ export interface AllocationData {
     functionName: string;
 }
 
+interface ModuleCache {
+    name: string;
+    path: string;
+    packages: {
+        name: string;
+        path: string;
+        benchmarks: string[];
+    }[];
+}
+
 export class Provider implements vscode.TreeDataProvider<Item> {
     public _onDidChangeTreeData: vscode.EventEmitter<Item | undefined | null | void> = new vscode.EventEmitter<Item | undefined | null | void>();
     readonly onDidChangeTreeData: vscode.Event<Item | undefined | null | void> = this._onDidChangeTreeData.event;
 
     // Cache for discovered modules and their packages
-    private modules: {
-        name: string;
-        path: string;
-        packages: { name: string; path: string; benchmarks: string[] }[]
-    }[] = [];
+    private modules: ModuleCache[] = [];
     private packagesLoaded = false;
     private discoveryInProgress = false;
 
@@ -392,7 +422,6 @@ export class Provider implements vscode.TreeDataProvider<Item> {
 
         return pkg.name;
     }
-
 
     clearBenchmarkRunState(item: BenchmarkItem): void {
         this._onDidChangeTreeData.fire(item);
@@ -482,7 +511,7 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         }
 
         if (element instanceof PackageItem) {
-            return this.getBenchmarks(element);
+            return element.getChildren(this.modules);
         }
 
         if (element instanceof BenchmarkItem) {
@@ -647,32 +676,6 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         }
 
         return packages;
-    }
-
-    private getBenchmarks(packageItem: PackageItem): BenchmarkItem[] {
-        // Find the package in the modules structure
-        const module = this.modules.find(m => m.packages.some(p => p.path === packageItem.filePath));
-        if (!module) {
-            throw new Error('Module not found in cache');
-        }
-
-        const pkg = module.packages.find(p => p.path === packageItem.filePath);
-        if (!pkg) {
-            throw new Error('Package not found in cache');
-        }
-
-        const benchmarks: BenchmarkItem[] = [];
-
-        for (const benchmark of pkg.benchmarks) {
-            const item = new BenchmarkItem(
-                benchmark,
-                packageItem.filePath,
-                packageItem
-            );
-            benchmarks.push(item);
-        }
-
-        return benchmarks;
     }
 
     /**
