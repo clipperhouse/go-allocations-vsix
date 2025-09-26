@@ -12,6 +12,22 @@ const execAsync = promisify(exec);
 
 export type Item = ModuleItem | PackageItem | BenchmarkItem | InformationItem | AllocationItem;
 
+
+export class InformationItem extends vscode.TreeItem {
+    public readonly contextValue: 'information' = 'information';
+
+    constructor(
+        label: string,
+        iconType: 'error' | 'info' | 'none' = 'none'
+    ) {
+        super(label, vscode.TreeItemCollapsibleState.None);
+
+        if (iconType !== 'none') {
+            this.iconPath = new vscode.ThemeIcon(iconType);
+        }
+    }
+}
+
 export class ModuleItem extends vscode.TreeItem {
     public readonly moduleName: string;
     public readonly modulePath: string;
@@ -45,6 +61,7 @@ export class PackageItem extends vscode.TreeItem {
     }
 }
 
+
 export class BenchmarkItem extends vscode.TreeItem {
     public readonly filePath: string;
     public readonly contextValue: 'benchmarkFunction' = 'benchmarkFunction';
@@ -62,24 +79,233 @@ export class BenchmarkItem extends vscode.TreeItem {
         this.iconPath = new vscode.ThemeIcon('symbol-function');
         this.tooltip = `Click to run ${label} and discover allocations`;
     }
+
+    private static noAllocationsItem = new InformationItem('No allocations found', 'info');
+    private static routineRegex = /^ROUTINE\s*=+\s*(.+?)\s+in\s+(.+)$/;
+    private static lineRegex = /^\s*(\d+(?:\.\d+)?[KMGT]?B)?\s*(\d+(?:\.\d+)?[KMGT]?B)?\s*(\d+):\s*(.+)$/;
+
+    async getChildren(signal: AbortSignal): Promise<BenchmarkChildItem[]> {
+        if (!this.filePath) {
+            return [];
+        }
+
+        try {
+            // Check if operation is cancelled before starting
+            if (signal.aborted) {
+                throw new Error('Operation cancelled');
+            }
+
+            // Create unique temporary file for memory profile
+            const tempDir = os.tmpdir();
+            const uniqueId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}-${process.pid}`;
+            const memprofilePath = path.join(tempDir, `go-allocations-memprofile-${uniqueId}.pb.gz`);
+            const benchmarkName = typeof this.label === 'string' ? this.label : this.label?.label || '';
+            const escapedBenchmarkName = quote([benchmarkName]);
+            const memprofilerate = 1024 * 64; // 64K
+
+            // Use shell-quote to safely escape the benchmark name
+            const cmd = `go test -bench=^${escapedBenchmarkName}$ -memprofile=${memprofilePath} -run=^$ -gcflags="all=-N -l" -memprofilerate=${memprofilerate}`;
+
+            try {
+                const { stdout, stderr } = await execAsync(
+                    cmd,
+                    {
+                        cwd: this.filePath,
+                        signal: signal
+                    }
+                );
+
+                if (stderr) {
+                    console.error('Benchmark stderr:', stderr);
+                }
+
+                // Check if operation was cancelled after benchmark completion
+                if (signal.aborted) {
+                    throw new Error('Operation cancelled');
+                }
+
+                // Parse the memory profile using pprof
+                return await this.parseMemoryProfile(memprofilePath, signal);
+            } finally {
+                // Clean up the memory profile file
+                try {
+                    await fs.promises.unlink(memprofilePath);
+                } catch (cleanupError) {
+                    console.warn('Could not clean up memory profile file:', cleanupError);
+                }
+            }
+        } catch (error) {
+            console.error('Error getting allocation data:', error);
+            return [
+                new InformationItem(
+                    `${error}`,
+                    'error'
+                )
+            ];
+        }
+    }
+
+    private async parseMemoryProfile(memprofilePath: string, signal: AbortSignal): Promise<BenchmarkChildItem[]> {
+        /*
+        Example pprof -list output:
+
+ROUTINE ======================== github.com/clipperhouse/uax29/v2.BenchmarkString in /Users/msherman/Documents/code/src/github.com/clipperhouse/uax29/uax29_test.go
+     0     3.77GB (flat, cum) 99.92% of Total
+     .          .     13:func BenchmarkString(b *testing.B) {
+     .          .     14:	for i := 0; i < b.N; i++ {
+     .     3.77GB     15:		alloc()
+     .          .     16:	}
+     .          .     17:}
+ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /Users/msherman/Documents/code/src/github.com/clipperhouse/uax29/uax29_test.go
+3.77GB     3.77GB (flat, cum) 99.92% of Total
+     .          .      9:func alloc() {
+3.77GB     3.77GB     10:	_ = "updated nine times. Hello, world! こんにちは 안녕하세요 مرحبا" + strconv.Itoa(rand.Intn(20))
+     .          .     11:}
+     .          .     12:
+     .          .     13:func BenchmarkString(b *testing.B) {
+     .          .     14:	for i := 0; i < b.N; i++ {
+     .          .     15:		alloc()
+        */
+        /*
+            We only want the flat bytes, that's our definition of where the
+            allocation is. In the example above, the alloc() call on line 15
+            has no flat bytes, the first column. We want the actual allocation
+            on line 10, where the string is created.
+        */
+
+        try {
+            // Check if operation was cancelled before parsing
+            if (signal.aborted) {
+                throw new Error('Operation cancelled');
+            }
+
+            // Use streaming approach for memory efficiency
+            const results = await new Promise<BenchmarkChildItem[]>((resolve, reject) => {
+                const items: BenchmarkChildItem[] = [];
+                let currentFunction = '';
+                let currentFile = '';
+                let inFunction = false;
+                let stderr = '';
+
+                const moduleName = this.parent.parent.moduleName;
+                const cmd = 'go';
+                const args = ['tool', 'pprof', `-list=${moduleName}`, memprofilePath];
+
+                const child = spawn(cmd, args, {
+                    cwd: this.filePath,
+                    signal,
+                    stdio: ['ignore', 'pipe', 'pipe']
+                });
+
+                const rl = readline.createInterface({
+                    input: child.stdout,
+                    crlfDelay: Infinity
+                });
+
+                // Capture stderr output
+                child.stderr?.on('data', (data) => {
+                    stderr += data.toString();
+                });
+
+                rl.on('line', (line) => {
+                    const trimmedLine = line.trim();
+
+                    // Check if this is a function header
+                    const functionMatch = trimmedLine.match(BenchmarkItem.routineRegex);
+                    if (functionMatch) {
+                        currentFunction = functionMatch[1];
+                        currentFile = functionMatch[2];
+                        inFunction = true;
+                        return;
+                    }
+
+                    // Check if we're in a function and this is a line with allocation data
+                    if (inFunction && trimmedLine && !trimmedLine.includes('Total:') && !trimmedLine.includes('ROUTINE')) {
+                        const lineMatch = trimmedLine.match(BenchmarkItem.lineRegex);
+                        if (lineMatch) {
+                            const flatBytes = lineMatch[1] || '0B';
+                            const cumulativeBytes = lineMatch[2] || '0B';
+                            const lineNumber = parseInt(lineMatch[3]);
+                            const codeLine = lineMatch[4];
+
+                            if (lineNumber > 0 && (flatBytes !== '0B' || cumulativeBytes !== '0B')) {
+                                const functionName = BenchmarkItem.shortFunctionName(currentFunction);
+
+                                const allocationItem = new AllocationItem(
+                                    `${codeLine.trim()}`,
+                                    currentFile,
+                                    lineNumber,
+                                    {
+                                        flatBytes: flatBytes,
+                                        cumulativeBytes: cumulativeBytes,
+                                        functionName: functionName
+                                    }
+                                );
+                                items.push(allocationItem);
+                            }
+                        }
+                    }
+
+                    // Reset when we hit an empty line or new function
+                    if (trimmedLine === '' || trimmedLine.includes('ROUTINE')) {
+                        inFunction = false;
+                    }
+                });
+
+                rl.on('close', () => {
+                    resolve(items);
+                });
+
+                // Handle process spawn errors (e.g., command not found)
+                child.on('error', (error) => {
+                    reject(error);
+                });
+
+                child.on('close', (code) => {
+                    if (stderr.includes('no matches found for regexp')) {
+                        resolve([BenchmarkItem.noAllocationsItem]);
+                        return;
+                    }
+
+                    // If process exited with non-zero code and we have stderr, treat as error
+                    if (code !== 0 && stderr.trim()) {
+                        reject(new Error(`pprof exit code ${code}: ${stderr.trim()}`));
+                        return;
+                    }
+
+                    // If we get here, the process completed successfully
+                    // The readline interface will handle resolving with the parsed items
+                });
+            });
+
+            // If no allocation data found, show a message
+            if (results.length === 0) {
+                results.push(BenchmarkItem.noAllocationsItem);
+            }
+
+            return results;
+        } catch (error) {
+            console.error('Error parsing memory profile:', error);
+            const msg = error instanceof Error ? error.message : String(error);
+            return [
+                new InformationItem(
+                    `${msg}`,
+                    'error'
+                )
+            ];
+        }
+    }
+
+    // Display helper: last path segment after '/', then after first '.'
+    private static shortFunctionName = (fullName: string): string => {
+        const slash = fullName.lastIndexOf('/');
+        const afterSlash = slash >= 0 ? fullName.slice(slash + 1) : fullName;
+        const firstDot = afterSlash.indexOf('.');
+        return firstDot >= 0 ? afterSlash.slice(firstDot + 1) : afterSlash;
+    }
 }
 
 export type BenchmarkChildItem = InformationItem | AllocationItem;
-
-export class InformationItem extends vscode.TreeItem {
-    public readonly contextValue: 'information' = 'information';
-
-    constructor(
-        label: string,
-        iconType: 'error' | 'info' | 'none' = 'none'
-    ) {
-        super(label, vscode.TreeItemCollapsibleState.None);
-
-        if (iconType !== 'none') {
-            this.iconPath = new vscode.ThemeIcon(iconType);
-        }
-    }
-}
 
 const getImageUri = (imageName: string): vscode.Uri => {
     return vscode.Uri.joinPath(vscode.Uri.file(__dirname), '..', 'images', imageName);
@@ -260,8 +486,7 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         }
 
         if (element instanceof BenchmarkItem) {
-            const allocationData = await this.getAllocationData(element);
-            return allocationData;
+            return await element.getChildren(this.abortSignal());
         }
 
         return Promise.resolve([]);
@@ -448,245 +673,6 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         }
 
         return benchmarks;
-    }
-
-    async getAllocationData(benchmarkItem: BenchmarkItem): Promise<BenchmarkChildItem[]> {
-        const signal = this.abortSignal();
-
-        if (!benchmarkItem.filePath) {
-            return [];
-        }
-
-        try {
-            // Check if operation is cancelled before starting
-            if (signal.aborted) {
-                throw new Error('Operation cancelled');
-            }
-
-            // Create unique temporary file for memory profile
-            const tempDir = os.tmpdir();
-            const uniqueId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}-${process.pid}`;
-            const memprofilePath = path.join(tempDir, `go-allocations-memprofile-${uniqueId}.pb.gz`);
-            const benchmarkName = typeof benchmarkItem.label === 'string' ? benchmarkItem.label : benchmarkItem.label?.label || '';
-            const escapedBenchmarkName = quote([benchmarkName]);
-            const memprofilerate = 1024 * 64; // 64K
-
-            // Use shell-quote to safely escape the benchmark name
-            const cmd = `go test -bench=^${escapedBenchmarkName}$ -memprofile=${memprofilePath} -run=^$ -gcflags="all=-N -l" -memprofilerate=${memprofilerate}`;
-
-            try {
-                const { stdout, stderr } = await execAsync(
-                    cmd,
-                    {
-                        cwd: benchmarkItem.filePath,
-                        signal: signal
-                    }
-                );
-
-                if (stderr) {
-                    console.error('Benchmark stderr:', stderr);
-                }
-
-                // Check if operation was cancelled after benchmark completion
-                if (signal.aborted) {
-                    throw new Error('Operation cancelled');
-                }
-
-                // Parse the memory profile using pprof
-                const allocationData = await this.parseMemoryProfile(memprofilePath, benchmarkItem);
-
-                return allocationData;
-            } finally {
-                // Clean up the memory profile file
-                try {
-                    await fs.promises.unlink(memprofilePath);
-                } catch (cleanupError) {
-                    console.warn('Could not clean up memory profile file:', cleanupError);
-                }
-            }
-        } catch (error) {
-            console.error('Error getting allocation data:', error);
-            const msg = error instanceof Error ? error.message : String(error);
-            return [
-                new InformationItem(
-                    `${msg}`,
-                    'error'
-                )
-            ];
-        }
-    }
-
-    // Display helper: last path segment after '/', then after first '.'
-    private shortFunctionName = (fullName: string): string => {
-        const slash = fullName.lastIndexOf('/');
-        const afterSlash = slash >= 0 ? fullName.slice(slash + 1) : fullName;
-        const firstDot = afterSlash.indexOf('.');
-        return firstDot >= 0 ? afterSlash.slice(firstDot + 1) : afterSlash;
-    }
-
-    private readonly noAllocationsItem = new InformationItem('No allocations found', 'info');
-    private readonly routineRegex = /^ROUTINE\s*=+\s*(.+?)\s+in\s+(.+)$/;
-    private readonly lineRegex = /^\s*(\d+(?:\.\d+)?[KMGT]?B)?\s*(\d+(?:\.\d+)?[KMGT]?B)?\s*(\d+):\s*(.+)$/;
-
-    private async parseMemoryProfile(memprofilePath: string, benchmarkItem: BenchmarkItem): Promise<BenchmarkChildItem[]> {
-        /*
-        Example pprof -list output:
-
-ROUTINE ======================== github.com/clipperhouse/uax29/v2.BenchmarkString in /Users/msherman/Documents/code/src/github.com/clipperhouse/uax29/uax29_test.go
-     0     3.77GB (flat, cum) 99.92% of Total
-     .          .     13:func BenchmarkString(b *testing.B) {
-     .          .     14:	for i := 0; i < b.N; i++ {
-     .     3.77GB     15:		alloc()
-     .          .     16:	}
-     .          .     17:}
-ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /Users/msherman/Documents/code/src/github.com/clipperhouse/uax29/uax29_test.go
-3.77GB     3.77GB (flat, cum) 99.92% of Total
-     .          .      9:func alloc() {
-3.77GB     3.77GB     10:	_ = "updated nine times. Hello, world! こんにちは 안녕하세요 مرحبا" + strconv.Itoa(rand.Intn(20))
-     .          .     11:}
-     .          .     12:
-     .          .     13:func BenchmarkString(b *testing.B) {
-     .          .     14:	for i := 0; i < b.N; i++ {
-     .          .     15:		alloc()
-        */
-        /*
-            We only want the flat bytes, that's our definition of where the
-            allocation is. In the example above, the alloc() call on line 15
-            has no flat bytes, the first column. We want the actual allocation
-            on line 10, where the string is created.
-        */
-        /*
-            TODO all this logic can be better
-            We can use the -list argument below to ensure we only
-            see user code -- likely use the module name for that. This
-            would allow removing isUserCode.
-            Then, maybe the regex is too complicated, consider actual parsing.
-            Or maybe the regex is best!
-        */
-
-        const signal = this.abortSignal();
-
-        try {
-            // Check if operation was cancelled before parsing
-            if (signal.aborted) {
-                throw new Error('Operation cancelled');
-            }
-
-            // Use streaming approach for memory efficiency
-            const results = await new Promise<BenchmarkChildItem[]>((resolve, reject) => {
-                const items: BenchmarkChildItem[] = [];
-                let currentFunction = '';
-                let currentFile = '';
-                let inFunction = false;
-                let stderr = '';
-
-                const moduleName = benchmarkItem.parent.parent.moduleName;
-                const cmd = 'go';
-                const args = ['tool', 'pprof', `-list=${moduleName}`, memprofilePath];
-
-                const child = spawn(cmd, args, {
-                    cwd: benchmarkItem.filePath,
-                    signal,
-                    stdio: ['ignore', 'pipe', 'pipe']
-                });
-
-                const rl = readline.createInterface({
-                    input: child.stdout,
-                    crlfDelay: Infinity
-                });
-
-                // Capture stderr output
-                child.stderr?.on('data', (data) => {
-                    stderr += data.toString();
-                });
-
-                rl.on('line', (line) => {
-                    const trimmedLine = line.trim();
-
-                    // Check if this is a function header
-                    const functionMatch = trimmedLine.match(this.routineRegex);
-                    if (functionMatch) {
-                        currentFunction = functionMatch[1];
-                        currentFile = functionMatch[2];
-                        inFunction = true;
-                        return;
-                    }
-
-                    // Check if we're in a function and this is a line with allocation data
-                    if (inFunction && trimmedLine && !trimmedLine.includes('Total:') && !trimmedLine.includes('ROUTINE')) {
-                        const lineMatch = trimmedLine.match(this.lineRegex);
-                        if (lineMatch) {
-                            const flatBytes = lineMatch[1] || '0B';
-                            const cumulativeBytes = lineMatch[2] || '0B';
-                            const lineNumber = parseInt(lineMatch[3]);
-                            const codeLine = lineMatch[4];
-
-                            if (lineNumber > 0 && (flatBytes !== '0B' || cumulativeBytes !== '0B')) {
-                                const functionName = this.shortFunctionName(currentFunction);
-
-                                const allocationItem = new AllocationItem(
-                                    `${codeLine.trim()}`,
-                                    currentFile,
-                                    lineNumber,
-                                    {
-                                        flatBytes: flatBytes,
-                                        cumulativeBytes: cumulativeBytes,
-                                        functionName: functionName
-                                    }
-                                );
-                                items.push(allocationItem);
-                            }
-                        }
-                    }
-
-                    // Reset when we hit an empty line or new function
-                    if (trimmedLine === '' || trimmedLine.includes('ROUTINE')) {
-                        inFunction = false;
-                    }
-                });
-
-                rl.on('close', () => {
-                    resolve(items);
-                });
-
-                // Handle process spawn errors (e.g., command not found)
-                child.on('error', (error) => {
-                    reject(error);
-                });
-
-                child.on('close', (code) => {
-                    if (stderr.includes('no matches found for regexp')) {
-                        resolve([this.noAllocationsItem]);
-                        return;
-                    }
-
-                    // If process exited with non-zero code and we have stderr, treat as error
-                    if (code !== 0 && stderr.trim()) {
-                        reject(new Error(`pprof exit code ${code}: ${stderr.trim()}`));
-                        return;
-                    }
-
-                    // If we get here, the process completed successfully
-                    // The readline interface will handle resolving with the parsed items
-                });
-            });
-
-            // If no allocation data found, show a message
-            if (results.length === 0) {
-                results.push(this.noAllocationsItem);
-            }
-
-            return results;
-        } catch (error) {
-            console.error('Error parsing memory profile:', error);
-            const msg = error instanceof Error ? error.message : String(error);
-            return [
-                new InformationItem(
-                    `${msg}`,
-                    'error'
-                )
-            ];
-        }
     }
 
     /**
