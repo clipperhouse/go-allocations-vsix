@@ -6,7 +6,6 @@ import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import * as readline from 'readline';
 import { quote } from 'shell-quote';
-import { GoEnvironment } from './go';
 import { Sema } from 'async-sema';
 
 const execAsync = promisify(exec);
@@ -137,23 +136,7 @@ export class Provider implements vscode.TreeDataProvider<Item> {
     private packagesLoaded = false;
     private discoveryInProgress = false;
 
-    constructor() {
-        // Start GoEnvironment initialization immediately
-        this._goPromise = GoEnvironment.New(this.abortController, vscode.workspace.workspaceFolders).then(env => {
-            this._go = env;
-            return env;
-        });
-    }
-
-    private _go: GoEnvironment | null = null;
-    private _goPromise: Promise<GoEnvironment>;
-    private get go(): Promise<GoEnvironment> {
-        if (this._go) {
-            return Promise.resolve(this._go);
-        }
-
-        return this._goPromise;
-    }
+    constructor() { }
 
     private abortController: AbortController = new AbortController();
     abortSignal(): AbortSignal {
@@ -163,9 +146,6 @@ export class Provider implements vscode.TreeDataProvider<Item> {
     cancelAll(): void {
         this.abortController.abort();
         this.abortController = new AbortController();
-        if (this._go) {
-            this._go.setAbortController(this.abortController);
-        }
     }
 
     private getPackageLabel(pkg: { name: string; path: string; benchmarks: string[] }): string {
@@ -203,13 +183,6 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         this.modules = [];
         this.packagesLoaded = false;
         this.discoveryInProgress = false;
-
-        // Reset Go environment
-        this._go = null;
-        this._goPromise = GoEnvironment.New(this.abortController, vscode.workspace.workspaceFolders).then(env => {
-            this._go = env;
-            return env;
-        });
 
         // Fire tree data change event to refresh the view
         this._onDidChangeTreeData.fire();
