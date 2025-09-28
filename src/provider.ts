@@ -61,7 +61,7 @@ export class ModuleItem extends vscode.TreeItem {
         return packages;
     }
 
-    private getPackageLabel(pkg: { name: string; path: string; benchmarks: string[] }): string {
+    private getPackageLabel(pkg: PackageCache): string {
         const relativePath = path.relative(this.modulePath, pkg.path);
         // Use the package name when at the workspace root or when the
         // relative path matches the package name; otherwise use the path.
@@ -91,19 +91,19 @@ export class PackageItem extends vscode.TreeItem {
 
     getChildren(modules: ModuleCache[]): BenchmarkItem[] {
         // Find the package in the modules structure
-        const module = modules.find(m => m.packages.some(p => p.path === this.filePath));
-        if (!module) {
+        const moduleCache = modules.find(m => m.hasPackageAtPath(this.filePath));
+        if (!moduleCache) {
             throw new Error('Module not found in cache');
         }
 
-        const pkg = module.packages.find(p => p.path === this.filePath);
-        if (!pkg) {
+        const pkgCache = moduleCache.findPackageByPath(this.filePath);
+        if (!pkgCache) {
             throw new Error('Package not found in cache');
         }
 
         const benchmarks: BenchmarkItem[] = [];
 
-        for (const benchmark of pkg.benchmarks) {
+        for (const benchmark of pkgCache.benchmarks) {
             const item = new BenchmarkItem(
                 benchmark,
                 this.filePath,
@@ -403,23 +403,41 @@ export interface AllocationData {
     functionName: string;
 }
 
-interface ModuleCache {
+interface PackageCache {
     name: string;
     path: string;
-    packages: {
-        name: string;
-        path: string;
-        benchmarks: string[];
-    }[];
+    benchmarks: string[];
+}
+
+class ModuleCache {
+    public readonly name: string;
+    public readonly path: string;
+    public readonly packages: PackageCache[] = [];
+
+    constructor(name: string, path: string) {
+        this.name = name;
+        this.path = path;
+    }
+
+    findPackageByPath(packagePath: string): PackageCache | undefined {
+        return this.packages.find(p => p.path === packagePath);
+    }
+
+    hasPackageAtPath(packagePath: string): boolean {
+        return this.packages.some(p => p.path === packagePath);
+    }
+
+    addPackage(packageCache: PackageCache): void {
+        this.packages.push(packageCache);
+    }
 }
 
 export class Provider implements vscode.TreeDataProvider<Item> {
     public _onDidChangeTreeData: vscode.EventEmitter<Item | undefined | null | void> = new vscode.EventEmitter<Item | undefined | null | void>();
     readonly onDidChangeTreeData: vscode.Event<Item | undefined | null | void> = this._onDidChangeTreeData.event;
 
-    // Cache for discovered modules and their packages
-    private modules: ModuleCache[] = [];
-    private packagesLoaded = false;
+    private moduleCaches: ModuleCache[] = [];
+    private moduleCachesLoaded = false;
     private discoveryInProgress = false;
 
     constructor() { }
@@ -434,7 +452,6 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         this.abortController = new AbortController();
     }
 
-
     clearBenchmarkRunState(item: BenchmarkItem): void {
         this._onDidChangeTreeData.fire(item);
     }
@@ -447,8 +464,8 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         this.cancelAll();
 
         // Reset all cache state
-        this.modules = [];
-        this.packagesLoaded = false;
+        this.moduleCaches = [];
+        this.moduleCachesLoaded = false;
         this.discoveryInProgress = false;
 
         // Fire tree data change event to refresh the view
@@ -494,12 +511,18 @@ export class Provider implements vscode.TreeDataProvider<Item> {
 
     async getChildren(element?: Item): Promise<Item[]> {
         if (!element) {
-            // If not loaded and not in progress, start loading
-            if (!this.discoveryInProgress && !this.packagesLoaded) {
+            // Note that there is asynchrony here, that the moduleCaches
+            // will not be fully loaded immediately; loadModules() is async
+            // but we are not awaiting it.
+            //
+            // loadModules() fires change events as it progresses, which
+            // triggers getChildren() again. The result is that the tree view
+            // populates incrementally as packages are discovered.
+            if (!this.discoveryInProgress && !this.moduleCachesLoaded) {
                 this.discoveryInProgress = true;
-                // Start loading in the background - don't wait for it
-                this.loadPackages().catch(error => {
-                    console.error('Error loading packages:', error);
+
+                this.loadModuleCaches().catch(error => {
+                    console.error('Error loading modules:', error);
                     this.discoveryInProgress = false;
                 });
             }
@@ -510,20 +533,20 @@ export class Provider implements vscode.TreeDataProvider<Item> {
             );
 
             // Return currently discovered modules immediately (even if loading is still in progress)
-            const moduleItems = this.modules.map(module => new ModuleItem(
-                module.name,
-                module.path
+            const moduleItems = this.moduleCaches.map(m => new ModuleItem(
+                m.name,
+                m.path
             ));
 
             return [instruction, ...moduleItems];
         }
 
         if (element instanceof ModuleItem) {
-            return element.getChildren(this.modules);
+            return element.getChildren(this.moduleCaches);
         }
 
         if (element instanceof PackageItem) {
-            return element.getChildren(this.modules);
+            return element.getChildren(this.moduleCaches);
         }
 
         if (element instanceof BenchmarkItem) {
@@ -533,44 +556,43 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         return Promise.resolve([]);
     }
 
-    private async loadPackages(): Promise<void> {
+    private async loadModuleCaches(): Promise<void> {
         const signal = this.abortSignal();
 
         if (!vscode.workspace.workspaceFolders) {
-            this.packagesLoaded = true;
+            this.moduleCachesLoaded = true;
             this.discoveryInProgress = false;
             this._onDidChangeTreeData.fire();
             return;
         }
 
         try {
-            for (const workspaceFolder of vscode.workspace.workspaceFolders) {
+            for (const folder of vscode.workspace.workspaceFolders) {
                 if (signal.aborted) {
                     throw new Error('Operation cancelled');
                 }
 
                 try {
-                    await this.loadPackagesFromWorkspace(workspaceFolder.uri.fsPath);
+                    await this.loadModulesInFolder(folder);
                 } catch (error) {
                     if (signal.aborted) {
                         throw error;
                     }
-                    console.error('Error processing workspace folder:', error);
+                    console.error(error);
                 }
             }
         } catch (error) {
             if (signal.aborted) {
-                console.log('Package loading cancelled');
                 throw error;
             }
         } finally {
-            this.packagesLoaded = true;
+            this.moduleCachesLoaded = true;
             this.discoveryInProgress = false;
             this._onDidChangeTreeData.fire();
         }
     }
 
-    private async loadPackagesFromWorkspace(rootPath: string): Promise<void> {
+    private async loadModulesInFolder(folder: vscode.WorkspaceFolder): Promise<void> {
         const signal = this.abortSignal();
 
         try {
@@ -579,40 +601,39 @@ export class Provider implements vscode.TreeDataProvider<Item> {
             }
 
             // Get the module name for this workspace
-            const { stdout: moduleName } = await execAsync('go list -m', {
-                cwd: rootPath,
-                signal: signal
-            });
+            const cmdModules = 'go list -m';
+            const { stdout: moduleName } = await execAsync(
+                cmdModules,
+                { cwd: folder.uri.fsPath, signal: signal }
+            );
 
             if (!moduleName.trim() || moduleName.trim() === 'command-line-arguments') {
                 return; // Skip if not a valid module
             }
 
             // Find or create module entry
-            let module = this.modules.find(m => m.name === moduleName.trim());
-            if (!module) {
-                module = {
-                    name: moduleName.trim(),
-                    path: rootPath,
-                    packages: []
-                };
-                this.modules.push(module);
+            let moduleCache = this.moduleCaches.find(m => m.name === moduleName.trim());
+            if (!moduleCache) {
+                moduleCache = new ModuleCache(moduleName.trim(), folder.uri.fsPath);
+                this.moduleCaches.push(moduleCache);
             }
 
-            // Get all packages first
-            const { stdout: packagesOutput } = await execAsync('go list -f "{{.Name}} {{.Dir}}" ./...', {
-                cwd: rootPath,
-                signal: signal
-            });
-            const packageLines = packagesOutput.trim().split('\n');
+            // Get all packages
+            const cmdPackages = 'go list -f "{{.Name}} {{.Dir}}" ./...';
+            const { stdout: packagesOutput } = await execAsync(
+                cmdPackages,
+                { cwd: folder.uri.fsPath, signal: signal }
+            );
+            const packageLines = packagesOutput.trim()
+                .split('\n')
+                .map(line => line.trim());
 
             // Process each package and discover benchmarks, updating tree after each discovery
-            for (let line of packageLines) {
+            for (const line of packageLines) {
                 if (signal.aborted) {
                     throw new Error('Operation cancelled');
                 }
 
-                line = line.trim();
                 if (!line) {
                     continue;
                 }
@@ -627,17 +648,15 @@ export class Provider implements vscode.TreeDataProvider<Item> {
 
                 try {
                     // Get benchmark functions for this package
+                    const cmdBenchmarks = 'go test -list="^Benchmark[_A-Z][^/]*$"';
                     const { stdout: benchmarksOutput } = await execAsync(
-                        'go test -list="^Benchmark[_A-Z][^/]*$"',
-                        {
-                            cwd: packageDir,
-                            signal: signal
-                        }
+                        cmdBenchmarks,
+                        { cwd: packageDir, signal: signal }
                     );
 
                     const benchmarkLines = benchmarksOutput.trim().split('\n');
                     const benchmarks = benchmarkLines
-                        .filter(line => line.startsWith('Benchmark') && !line.includes('ok'))
+                        .filter(line => line.startsWith('Benchmark'))
                         .map(line => line.trim());
 
                     if (benchmarks.length > 0) {
@@ -646,8 +665,8 @@ export class Provider implements vscode.TreeDataProvider<Item> {
                         }
 
                         // Add package with its benchmarks to the module
-                        const pkg = { name: packageName, path: packageDir, benchmarks };
-                        module.packages.push(pkg);
+                        const packageCache: PackageCache = { name: packageName, path: packageDir, benchmarks };
+                        moduleCache.addPackage(packageCache);
 
                         // Fire tree data change event to render this module immediately
                         this._onDidChangeTreeData.fire();
@@ -665,7 +684,7 @@ export class Provider implements vscode.TreeDataProvider<Item> {
                 console.log('Package discovery cancelled');
                 throw error;
             }
-            console.error('Error loading packages from workspace:', error);
+            console.error(error);
             throw error;
         }
     }
