@@ -278,13 +278,24 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         }
 
         try {
+            const useGopls = vscode.workspace.getConfiguration('goAllocations').get<boolean>('useGopls', true);
+            console.log(`Using ${useGopls ? 'gopls' : 'traditional'} discovery method`);
+            
+            const discoveryStartTime = Date.now();
+            
             for (const workspaceFolder of vscode.workspace.workspaceFolders) {
                 if (signal.aborted) {
                     throw new Error('Operation cancelled');
                 }
 
                 try {
-                    await this.loadPackagesFromWorkspace(workspaceFolder.uri.fsPath);
+                    if (useGopls) {
+                        // Try the new gopls-based approach
+                        await this.loadPackagesFromWorkspaceUsingGopls(workspaceFolder.uri.fsPath);
+                    } else {
+                        // Use the original method
+                        await this.loadPackagesFromWorkspace(workspaceFolder.uri.fsPath);
+                    }
                 } catch (error) {
                     if (signal.aborted) {
                         throw error;
@@ -292,6 +303,9 @@ export class Provider implements vscode.TreeDataProvider<Item> {
                     console.error('Error processing workspace folder:', error);
                 }
             }
+            
+            const totalDiscoveryTime = Date.now() - discoveryStartTime;
+            console.log(`Total discovery completed in ${totalDiscoveryTime}ms using ${useGopls ? 'gopls' : 'traditional'} method`);
         } catch (error) {
             if (signal.aborted) {
                 console.log('Package loading cancelled');
@@ -302,6 +316,137 @@ export class Provider implements vscode.TreeDataProvider<Item> {
             this.discoveryInProgress = false;
             this._onDidChangeTreeData.fire();
         }
+    }
+
+    /**
+     * New method using VS Code's workspace symbol provider (gopls) for better performance
+     */
+    private async loadPackagesFromWorkspaceUsingGopls(rootPath: string): Promise<void> {
+        const signal = this.abortSignal();
+
+        try {
+            if (signal.aborted) {
+                throw new Error('Operation cancelled');
+            }
+
+            // Get the module name for this workspace (still need go list for this)
+            const { stdout: moduleName } = await execAsync('go list -m', {
+                cwd: rootPath,
+                signal: signal
+            });
+
+            if (!moduleName.trim() || moduleName.trim() === 'command-line-arguments') {
+                return; // Skip if not a valid module
+            }
+
+            // Find or create module entry
+            let module = this.modules.find(m => m.name === moduleName.trim());
+            if (!module) {
+                module = {
+                    name: moduleName.trim(),
+                    path: rootPath,
+                    packages: []
+                };
+                this.modules.push(module);
+            }
+
+            // Use VS Code's workspace symbol provider to find benchmark functions
+            console.log('Discovering benchmarks using gopls...');
+            const startTime = Date.now();
+            const symbols = await vscode.commands.executeCommand(
+                'vscode.executeWorkspaceSymbolProvider',
+                'Benchmark'
+            ) as vscode.SymbolInformation[];
+            const goplsTime = Date.now() - startTime;
+            console.log(`Gopls symbol query took ${goplsTime}ms, found ${symbols?.length || 0} total symbols`);
+
+            if (signal.aborted) {
+                throw new Error('Operation cancelled');
+            }
+
+            // Filter for benchmark functions in test files within this workspace
+            const benchmarkSymbols = symbols.filter(symbol => 
+                symbol.kind === vscode.SymbolKind.Function && 
+                symbol.name.startsWith('Benchmark') &&
+                /^Benchmark[A-Z_]/.test(symbol.name) &&  // Match Go benchmark naming convention
+                symbol.location.uri.path.endsWith('_test.go') &&
+                symbol.location.uri.fsPath.startsWith(rootPath)  // Only symbols in this workspace
+            );
+
+            console.log(`Found ${benchmarkSymbols.length} benchmark functions via gopls`);
+
+            // Group benchmarks by package directory
+            const packageMap = new Map<string, { name: string; path: string; benchmarks: string[] }>();
+
+            for (const symbol of benchmarkSymbols) {
+                if (signal.aborted) {
+                    throw new Error('Operation cancelled');
+                }
+
+                const packageDir = path.dirname(symbol.location.uri.fsPath);
+                const packageName = await this.getPackageNameFromPath(packageDir, rootPath);
+
+                if (!packageMap.has(packageDir)) {
+                    packageMap.set(packageDir, {
+                        name: packageName,
+                        path: packageDir,
+                        benchmarks: []
+                    });
+                }
+
+                packageMap.get(packageDir)!.benchmarks.push(symbol.name);
+            }
+
+            // Add packages with benchmarks to the module
+            for (const pkg of packageMap.values()) {
+                if (pkg.benchmarks.length > 0) {
+                    module.packages.push(pkg);
+                    console.log(`Added package ${pkg.name} with ${pkg.benchmarks.length} benchmarks`);
+                    
+                    // Fire update immediately for responsive UI
+                    this._onDidChangeTreeData.fire();
+                }
+            }
+
+        } catch (error) {
+            if (signal.aborted) {
+                console.log('Gopls package discovery cancelled');
+                throw error;
+            }
+            console.error('Error loading packages using gopls:', error);
+            
+            // Fall back to original method on error
+            const fallbackStartTime = Date.now();
+            console.log('Falling back to original discovery method...');
+            
+            try {
+                await this.loadPackagesFromWorkspace(rootPath);
+                const fallbackTime = Date.now() - fallbackStartTime;
+                console.log(`Fallback discovery completed in ${fallbackTime}ms`);
+            } catch (fallbackError) {
+                console.error('Fallback method also failed:', fallbackError);
+                throw fallbackError;
+            }
+        }
+    }
+
+    /**
+     * Helper method to determine package name from directory path
+     */
+    private async getPackageNameFromPath(packageDir: string, rootPath: string): Promise<string> {
+        const relativePath = path.relative(rootPath, packageDir);
+        if (relativePath === '') {
+            // Root package - get name from go.mod
+            try {
+                const { stdout } = await execAsync('go list .', { cwd: packageDir });
+                return stdout.trim();
+            } catch {
+                return 'main';
+            }
+        }
+        
+        // Use relative path as package identifier
+        return relativePath.replace(/[/\\]/g, '/');
     }
 
     private async loadPackagesFromWorkspace(rootPath: string): Promise<void> {

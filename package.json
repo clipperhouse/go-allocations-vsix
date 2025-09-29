@@ -62,6 +62,11 @@
                     "type": "boolean",
                     "default": false,
                     "description": "Automatically run benchmarks when opening a Go workspace"
+                },
+                "goAllocations.useGopls": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Use gopls (Go language server) for faster package and benchmark discovery"
                 }
             }
         },
@@ -111,6 +116,11 @@
             {
                 "command": "goAllocations.test",
                 "title": "Test Extension",
+                "when": "true"
+            },
+            {
+                "command": "goAllocations.testDiscoveryPerformance",
+                "title": "Test Discovery Performance",
                 "when": "true"
             }
         ],
