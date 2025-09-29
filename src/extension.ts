@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { Provider, Item, ModuleItem, PackageItem, BenchmarkItem, AllocationItem } from './provider';
 
 export function activate(context: vscode.ExtensionContext) {
-    const provider = new Provider();
+    console.log('Go Allocations Explorer: Activating...');    const provider = new Provider();
 
     let options: vscode.TreeViewOptions<Item> = {
         treeDataProvider: provider,
@@ -78,43 +78,43 @@ export function activate(context: vscode.ExtensionContext) {
             const output = vscode.window.createOutputChannel('Go Allocations Performance Test');
             output.clear();
             output.show();
-            
+
             try {
                 output.appendLine('=== Discovery Performance Test ===\n');
-                
+
                 // Test gopls method
                 output.appendLine('Testing gopls-based discovery...');
                 const goplsStartTime = Date.now();
-                
+
                 const testProvider = new Provider();
                 const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
                 if (!workspaceFolder) {
                     output.appendLine('No workspace folder found');
                     return;
                 }
-                
+
                 await (testProvider as any).loadPackagesFromWorkspaceUsingGopls(workspaceFolder.uri.fsPath);
                 const goplsTime = Date.now() - goplsStartTime;
                 output.appendLine(`Gopls discovery completed in ${goplsTime}ms\n`);
-                
+
                 // Test traditional method
                 output.appendLine('Testing traditional discovery...');
                 const traditionalStartTime = Date.now();
-                
+
                 const testProvider2 = new Provider();
                 await (testProvider2 as any).loadPackagesFromWorkspace(workspaceFolder.uri.fsPath);
                 const traditionalTime = Date.now() - traditionalStartTime;
                 output.appendLine(`Traditional discovery completed in ${traditionalTime}ms\n`);
-                
+
                 // Compare results
                 const speedup = traditionalTime / goplsTime;
                 output.appendLine('=== Results ===');
                 output.appendLine(`Gopls method: ${goplsTime}ms`);
                 output.appendLine(`Traditional method: ${traditionalTime}ms`);
                 output.appendLine(`Speedup: ${speedup.toFixed(2)}x ${speedup > 1 ? 'faster' : 'slower'}`);
-                
+
                 vscode.window.showInformationMessage(`Discovery test completed. Gopls is ${speedup.toFixed(2)}x ${speedup > 1 ? 'faster' : 'slower'} than traditional method.`);
-                
+
             } catch (error) {
                 output.appendLine(`Error during performance test: ${error}`);
                 console.error('Performance test error:', error);

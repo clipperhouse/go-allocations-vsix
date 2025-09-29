@@ -167,7 +167,6 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         return pkg.name;
     }
 
-
     clearBenchmarkRunState(item: BenchmarkItem): void {
         this._onDidChangeTreeData.fire(item);
     }
@@ -280,9 +279,9 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         try {
             const useGopls = vscode.workspace.getConfiguration('goAllocations').get<boolean>('useGopls', true);
             console.log(`Using ${useGopls ? 'gopls' : 'traditional'} discovery method`);
-            
+
             const discoveryStartTime = Date.now();
-            
+
             for (const workspaceFolder of vscode.workspace.workspaceFolders) {
                 if (signal.aborted) {
                     throw new Error('Operation cancelled');
@@ -303,7 +302,7 @@ export class Provider implements vscode.TreeDataProvider<Item> {
                     console.error('Error processing workspace folder:', error);
                 }
             }
-            
+
             const totalDiscoveryTime = Date.now() - discoveryStartTime;
             console.log(`Total discovery completed in ${totalDiscoveryTime}ms using ${useGopls ? 'gopls' : 'traditional'} method`);
         } catch (error) {
@@ -327,6 +326,14 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         try {
             if (signal.aborted) {
                 throw new Error('Operation cancelled');
+            }
+
+            // Ensure Go extension is available and active (for gopls)
+            const goExtension = vscode.extensions.getExtension('golang.go');
+            if (goExtension && !goExtension.isActive) {
+                console.log('Go extension not active, activating...');
+                await goExtension.activate();
+                console.log('Go extension activated');
             }
 
             // Get the module name for this workspace (still need go list for this)
@@ -365,8 +372,8 @@ export class Provider implements vscode.TreeDataProvider<Item> {
             }
 
             // Filter for benchmark functions in test files within this workspace
-            const benchmarkSymbols = symbols.filter(symbol => 
-                symbol.kind === vscode.SymbolKind.Function && 
+            const benchmarkSymbols = symbols.filter((symbol: vscode.SymbolInformation) =>
+                symbol.kind === vscode.SymbolKind.Function &&
                 symbol.name.startsWith('Benchmark') &&
                 /^Benchmark[A-Z_]/.test(symbol.name) &&  // Match Go benchmark naming convention
                 symbol.location.uri.path.endsWith('_test.go') &&
@@ -402,7 +409,7 @@ export class Provider implements vscode.TreeDataProvider<Item> {
                 if (pkg.benchmarks.length > 0) {
                     module.packages.push(pkg);
                     console.log(`Added package ${pkg.name} with ${pkg.benchmarks.length} benchmarks`);
-                    
+
                     // Fire update immediately for responsive UI
                     this._onDidChangeTreeData.fire();
                 }
@@ -413,12 +420,12 @@ export class Provider implements vscode.TreeDataProvider<Item> {
                 console.log('Gopls package discovery cancelled');
                 throw error;
             }
-            console.error('Error loading packages using gopls:', error);
-            
+            console.warn('Gopls discovery failed:', error);
+
             // Fall back to original method on error
             const fallbackStartTime = Date.now();
             console.log('Falling back to original discovery method...');
-            
+
             try {
                 await this.loadPackagesFromWorkspace(rootPath);
                 const fallbackTime = Date.now() - fallbackStartTime;
@@ -444,7 +451,7 @@ export class Provider implements vscode.TreeDataProvider<Item> {
                 return 'main';
             }
         }
-        
+
         // Use relative path as package identifier
         return relativePath.replace(/[/\\]/g, '/');
     }
