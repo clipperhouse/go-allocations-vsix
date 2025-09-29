@@ -278,7 +278,6 @@ export class Provider implements vscode.TreeDataProvider<Item> {
 
         try {
             console.log('Using gopls for package and benchmark discovery');
-            const discoveryStartTime = Date.now();
 
             for (const workspaceFolder of vscode.workspace.workspaceFolders) {
                 if (signal.aborted) {
@@ -296,8 +295,7 @@ export class Provider implements vscode.TreeDataProvider<Item> {
                 }
             }
 
-            const totalDiscoveryTime = Date.now() - discoveryStartTime;
-            console.log(`Discovery completed in ${totalDiscoveryTime}ms using gopls`);
+            console.log('Discovery completed using gopls');
         } catch (error) {
             if (signal.aborted) {
                 console.log('Package loading cancelled');
@@ -352,13 +350,11 @@ export class Provider implements vscode.TreeDataProvider<Item> {
 
             // Use VS Code's workspace symbol provider to find benchmark functions
             console.log('Discovering benchmarks using gopls...');
-            const startTime = Date.now();
             const symbols = await vscode.commands.executeCommand(
                 'vscode.executeWorkspaceSymbolProvider',
                 'Benchmark'
             ) as vscode.SymbolInformation[];
-            const goplsTime = Date.now() - startTime;
-            console.log(`Gopls symbol query took ${goplsTime}ms, found ${symbols?.length || 0} total symbols`);
+            console.log(`Found ${symbols?.length || 0} total symbols`);
 
             if (signal.aborted) {
                 throw new Error('Operation cancelled');
