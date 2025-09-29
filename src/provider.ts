@@ -277,9 +277,7 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         }
 
         try {
-            const useGopls = vscode.workspace.getConfiguration('goAllocations').get<boolean>('useGopls', true);
-            console.log(`Using ${useGopls ? 'gopls' : 'traditional'} discovery method`);
-
+            console.log('Using gopls for package and benchmark discovery');
             const discoveryStartTime = Date.now();
 
             for (const workspaceFolder of vscode.workspace.workspaceFolders) {
@@ -288,23 +286,18 @@ export class Provider implements vscode.TreeDataProvider<Item> {
                 }
 
                 try {
-                    if (useGopls) {
-                        // Try the new gopls-based approach
-                        await this.loadPackagesFromWorkspaceUsingGopls(workspaceFolder.uri.fsPath);
-                    } else {
-                        // Use the original method
-                        await this.loadPackagesFromWorkspace(workspaceFolder.uri.fsPath);
-                    }
+                    await this.loadPackagesFromWorkspace(workspaceFolder.uri.fsPath);
                 } catch (error) {
                     if (signal.aborted) {
                         throw error;
                     }
                     console.error('Error processing workspace folder:', error);
+                    throw error; // Don't silently continue if gopls fails
                 }
             }
 
             const totalDiscoveryTime = Date.now() - discoveryStartTime;
-            console.log(`Total discovery completed in ${totalDiscoveryTime}ms using ${useGopls ? 'gopls' : 'traditional'} method`);
+            console.log(`Discovery completed in ${totalDiscoveryTime}ms using gopls`);
         } catch (error) {
             if (signal.aborted) {
                 console.log('Package loading cancelled');
@@ -318,9 +311,9 @@ export class Provider implements vscode.TreeDataProvider<Item> {
     }
 
     /**
-     * New method using VS Code's workspace symbol provider (gopls) for better performance
+     * Load packages and benchmarks using VS Code's workspace symbol provider (gopls)
      */
-    private async loadPackagesFromWorkspaceUsingGopls(rootPath: string): Promise<void> {
+    private async loadPackagesFromWorkspace(rootPath: string): Promise<void> {
         const signal = this.abortSignal();
 
         try {
@@ -420,20 +413,8 @@ export class Provider implements vscode.TreeDataProvider<Item> {
                 console.log('Gopls package discovery cancelled');
                 throw error;
             }
-            console.warn('Gopls discovery failed:', error);
-
-            // Fall back to original method on error
-            const fallbackStartTime = Date.now();
-            console.log('Falling back to original discovery method...');
-
-            try {
-                await this.loadPackagesFromWorkspace(rootPath);
-                const fallbackTime = Date.now() - fallbackStartTime;
-                console.log(`Fallback discovery completed in ${fallbackTime}ms`);
-            } catch (fallbackError) {
-                console.error('Fallback method also failed:', fallbackError);
-                throw fallbackError;
-            }
+            console.error('Gopls discovery failed:', error);
+            throw error; // Let the caller handle the error
         }
     }
 
@@ -456,105 +437,7 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         return relativePath.replace(/[/\\]/g, '/');
     }
 
-    private async loadPackagesFromWorkspace(rootPath: string): Promise<void> {
-        const signal = this.abortSignal();
 
-        try {
-            if (signal.aborted) {
-                throw new Error('Operation cancelled');
-            }
-
-            // Get the module name for this workspace
-            const { stdout: moduleName } = await execAsync('go list -m', {
-                cwd: rootPath,
-                signal: signal
-            });
-
-            if (!moduleName.trim() || moduleName.trim() === 'command-line-arguments') {
-                return; // Skip if not a valid module
-            }
-
-            // Find or create module entry
-            let module = this.modules.find(m => m.name === moduleName.trim());
-            if (!module) {
-                module = {
-                    name: moduleName.trim(),
-                    path: rootPath,
-                    packages: []
-                };
-                this.modules.push(module);
-            }
-
-            // Get all packages first
-            const { stdout: packagesOutput } = await execAsync('go list -f "{{.Name}} {{.Dir}}" ./...', {
-                cwd: rootPath,
-                signal: signal
-            });
-            const packageLines = packagesOutput.trim().split('\n');
-
-            // Process each package and discover benchmarks, updating tree after each discovery
-            for (let line of packageLines) {
-                if (signal.aborted) {
-                    throw new Error('Operation cancelled');
-                }
-
-                line = line.trim();
-                if (!line) {
-                    continue;
-                }
-
-                const parts = line.split(' ');
-                if (parts.length < 2) {
-                    continue;
-                }
-
-                const packageName = parts[0];
-                const packageDir = parts.slice(1).join(' ');
-
-                try {
-                    // Get benchmark functions for this package
-                    const { stdout: benchmarksOutput } = await execAsync(
-                        'go test -list="^Benchmark[_A-Z][^/]*$"',
-                        {
-                            cwd: packageDir,
-                            signal: signal
-                        }
-                    );
-
-                    const benchmarkLines = benchmarksOutput.trim().split('\n');
-                    const benchmarks = benchmarkLines
-                        .filter(line => line.startsWith('Benchmark') && !line.includes('ok'))
-                        .map(line => line.trim());
-
-                    if (benchmarks.length > 0) {
-                        if (signal.aborted) {
-                            throw new Error('Operation cancelled');
-                        }
-
-                        // Add package with its benchmarks to the module
-                        const pkg = { name: packageName, path: packageDir, benchmarks };
-                        module.packages.push(pkg);
-
-                        // Fire tree data change event to render this module immediately
-                        this._onDidChangeTreeData.fire();
-                    }
-                } catch (packageError) {
-                    if (signal.aborted) {
-                        throw packageError;
-                    }
-                    // Skip packages that can't be tested (e.g., no test files)
-                    console.warn(`Could not test package ${packageName}:`, packageError);
-                }
-            }
-        } catch (error) {
-            if (signal.aborted) {
-                console.log('Package discovery cancelled');
-                throw error;
-            }
-            console.error('Error loading packages from workspace:', error);
-            throw error;
-        }
-    }
 
     private getPackagesForModule(moduleItem: ModuleItem): PackageItem[] {
         const module = this.modules.find(m => m.path === moduleItem.modulePath);

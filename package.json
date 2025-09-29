@@ -1,13 +1,16 @@
 {
     "name": "go-allocations-vsix",
     "displayName": "Go Allocations Explorer",
-    "description": "An extension that helps locate Go allocations, using your benchmarks.",
+    "description": "An extension that helps locate Go allocations, using your benchmarks. Requires the Go extension.",
     "icon": "images/memory.goblue.png",
     "version": "0.3.1",
     "publisher": "Clipperhouse",
     "engines": {
         "vscode": "^1.74.0"
     },
+    "extensionDependencies": [
+        "golang.go"
+    ],
     "categories": [
         "Debuggers",
         "Testing"
@@ -62,11 +65,6 @@
                     "type": "boolean",
                     "default": false,
                     "description": "Automatically run benchmarks when opening a Go workspace"
-                },
-                "goAllocations.useGopls": {
-                    "type": "boolean",
-                    "default": true,
-                    "description": "Use gopls (Go language server) for faster package and benchmark discovery"
                 }
             }
         },

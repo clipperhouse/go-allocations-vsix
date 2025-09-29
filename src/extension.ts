@@ -1,8 +1,37 @@
 import * as vscode from 'vscode';
 import { Provider, Item, ModuleItem, PackageItem, BenchmarkItem, AllocationItem } from './provider';
 
-export function activate(context: vscode.ExtensionContext) {
-    console.log('Go Allocations Explorer: Activating...');    const provider = new Provider();
+export async function activate(context: vscode.ExtensionContext) {
+    console.log('Go Allocations Explorer: Activating...');
+
+    // Check if Go extension is available (required for gopls)
+    const goExtension = vscode.extensions.getExtension('golang.go');
+    if (!goExtension) {
+        const message = 'Go Allocations Explorer requires the Go extension to be installed. Please install the Go extension and reload VS Code.';
+        vscode.window.showErrorMessage(message, 'Install Go Extension').then(selection => {
+            if (selection === 'Install Go Extension') {
+                vscode.commands.executeCommand('workbench.extensions.installExtension', 'golang.go');
+            }
+        });
+        console.error('Go Allocations Explorer: Go extension not found');
+        return; // Don't activate if Go extension is missing
+    }
+
+    // Ensure Go extension is activated
+    if (!goExtension.isActive) {
+        console.log('Go Allocations Explorer: Activating Go extension...');
+        try {
+            await goExtension.activate();
+            console.log('Go Allocations Explorer: Go extension activated successfully');
+        } catch (error) {
+            const message = 'Failed to activate Go extension. Go Allocations Explorer requires gopls to function.';
+            vscode.window.showErrorMessage(message);
+            console.error('Go Allocations Explorer: Failed to activate Go extension:', error);
+            return;
+        }
+    }
+
+    const provider = new Provider();
 
     let options: vscode.TreeViewOptions<Item> = {
         treeDataProvider: provider,
@@ -75,16 +104,12 @@ export function activate(context: vscode.ExtensionContext) {
 
     const testDiscoveryPerformance = vscode.commands.registerCommand('goAllocations.testDiscoveryPerformance',
         async () => {
-            const output = vscode.window.createOutputChannel('Go Allocations Performance Test');
+            const output = vscode.window.createOutputChannel('Go Allocations Discovery Test');
             output.clear();
             output.show();
 
             try {
-                output.appendLine('=== Discovery Performance Test ===\n');
-
-                // Test gopls method
-                output.appendLine('Testing gopls-based discovery...');
-                const goplsStartTime = Date.now();
+                output.appendLine('=== Gopls Discovery Performance Test ===\n');
 
                 const testProvider = new Provider();
                 const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
@@ -93,31 +118,33 @@ export function activate(context: vscode.ExtensionContext) {
                     return;
                 }
 
-                await (testProvider as any).loadPackagesFromWorkspaceUsingGopls(workspaceFolder.uri.fsPath);
-                const goplsTime = Date.now() - goplsStartTime;
-                output.appendLine(`Gopls discovery completed in ${goplsTime}ms\n`);
+                output.appendLine('Testing gopls-based discovery...');
+                const startTime = Date.now();
+                await (testProvider as any).loadPackagesFromWorkspace(workspaceFolder.uri.fsPath);
+                const discoveryTime = Date.now() - startTime;
 
-                // Test traditional method
-                output.appendLine('Testing traditional discovery...');
-                const traditionalStartTime = Date.now();
+                output.appendLine(`\n=== Results ===`);
+                output.appendLine(`Gopls discovery completed in ${discoveryTime}ms`);
 
-                const testProvider2 = new Provider();
-                await (testProvider2 as any).loadPackagesFromWorkspace(workspaceFolder.uri.fsPath);
-                const traditionalTime = Date.now() - traditionalStartTime;
-                output.appendLine(`Traditional discovery completed in ${traditionalTime}ms\n`);
+                // Count discovered items
+                const moduleCount = (testProvider as any).modules.length;
+                let packageCount = 0;
+                let benchmarkCount = 0;
 
-                // Compare results
-                const speedup = traditionalTime / goplsTime;
-                output.appendLine('=== Results ===');
-                output.appendLine(`Gopls method: ${goplsTime}ms`);
-                output.appendLine(`Traditional method: ${traditionalTime}ms`);
-                output.appendLine(`Speedup: ${speedup.toFixed(2)}x ${speedup > 1 ? 'faster' : 'slower'}`);
+                for (const module of (testProvider as any).modules) {
+                    packageCount += module.packages.length;
+                    for (const pkg of module.packages) {
+                        benchmarkCount += pkg.benchmarks.length;
+                    }
+                }
 
-                vscode.window.showInformationMessage(`Discovery test completed. Gopls is ${speedup.toFixed(2)}x ${speedup > 1 ? 'faster' : 'slower'} than traditional method.`);
+                output.appendLine(`Found: ${moduleCount} modules, ${packageCount} packages, ${benchmarkCount} benchmarks`);
+                vscode.window.showInformationMessage(`Discovery completed in ${discoveryTime}ms. Found ${benchmarkCount} benchmarks across ${packageCount} packages.`);
 
             } catch (error) {
-                output.appendLine(`Error during performance test: ${error}`);
-                console.error('Performance test error:', error);
+                output.appendLine(`Error during discovery test: ${error}`);
+                console.error('Discovery test error:', error);
+                vscode.window.showErrorMessage(`Discovery test failed: ${error}`);
             }
         });
     context.subscriptions.push(testDiscoveryPerformance);
