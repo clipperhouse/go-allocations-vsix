@@ -285,7 +285,7 @@ export class Provider implements vscode.TreeDataProvider<Item> {
                 }
 
                 try {
-                    await this.loadPackagesFromWorkspace(workspaceFolder.uri.fsPath);
+                    await this.loadPackagesFromWorkspace(workspaceFolder);
                 } catch (error) {
                     if (signal.aborted) {
                         throw error;
@@ -311,7 +311,7 @@ export class Provider implements vscode.TreeDataProvider<Item> {
     /**
      * Load packages and benchmarks using VS Code's workspace symbol provider (gopls)
      */
-    private async loadPackagesFromWorkspace(rootPath: string): Promise<void> {
+    private async loadPackagesFromWorkspace(workspaceFolder: vscode.WorkspaceFolder): Promise<void> {
         const signal = this.abortSignal();
 
         try {
@@ -326,6 +326,8 @@ export class Provider implements vscode.TreeDataProvider<Item> {
                 await goExtension.activate();
                 console.log('Go extension activated');
             }
+
+            const rootPath = workspaceFolder.uri.fsPath;
 
             // Get the module name for this workspace (still need go list for this)
             const { stdout: moduleName } = await execAsync('go list -m', {
@@ -350,14 +352,6 @@ export class Provider implements vscode.TreeDataProvider<Item> {
 
             // Find all Go test files in this workspace using VS Code's file finder
             console.log('Finding Go test files...');
-            const workspaceFolder = vscode.workspace.workspaceFolders?.find(
-                folder => folder.uri.fsPath === rootPath
-            );
-
-            if (!workspaceFolder) {
-                console.log('No workspace folder found for path:', rootPath);
-                return;
-            }
 
             const testFilePattern = new vscode.RelativePattern(workspaceFolder, '**/*_test.go');
             const testFiles = await vscode.workspace.findFiles(
@@ -464,20 +458,17 @@ export class Provider implements vscode.TreeDataProvider<Item> {
     private async getPackageNameFromPath(packageDir: string, rootPath: string): Promise<string> {
         const relativePath = path.relative(rootPath, packageDir);
         if (relativePath === '') {
-            // Root package - get name from go.mod
             try {
-                const { stdout } = await execAsync('go list .', { cwd: packageDir });
+                const { stdout } = await execAsync('go list -f "{{.Name}}" .', { cwd: packageDir });
                 return stdout.trim();
             } catch {
-                return 'main';
+                return relativePath;
             }
         }
 
         // Use relative path as package identifier
         return relativePath.replace(/[/\\]/g, '/');
     }
-
-
 
     private getPackagesForModule(moduleItem: ModuleItem): PackageItem[] {
         const module = this.modules.find(m => m.path === moduleItem.modulePath);
