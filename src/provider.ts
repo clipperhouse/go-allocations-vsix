@@ -81,10 +81,6 @@ export class InformationItem extends vscode.TreeItem {
     }
 }
 
-const getImageUri = (imageName: string): vscode.Uri => {
-    return vscode.Uri.joinPath(vscode.Uri.file(__dirname), '..', 'images', imageName);
-}
-
 export class AllocationItem extends vscode.TreeItem {
     public readonly filePath: string;
     public readonly lineNumber: number;
@@ -101,7 +97,7 @@ export class AllocationItem extends vscode.TreeItem {
         this.filePath = filePath;
         this.lineNumber = lineNumber;
         this.allocationData = allocationData;
-        this.iconPath = getImageUri('memory.goblue.64.png');
+        this.iconPath = this.getImageUri('memory.goblue.64.png');
         this.description = `${allocationData.flatBytes} flat, ${allocationData.cumulativeBytes} cumulative`;
         this.tooltip = this.getTooltip();
     }
@@ -114,6 +110,10 @@ export class AllocationItem extends vscode.TreeItem {
             `Cumulative allocation: ${this.allocationData.cumulativeBytes}`,
             `Location: ${path.basename(this.filePath)}:${this.lineNumber}`
         ].join('\n');
+    }
+
+    private getImageUri(imageName: string): vscode.Uri {
+        return vscode.Uri.joinPath(vscode.Uri.file(__dirname), '..', 'images', imageName);
     }
 }
 
