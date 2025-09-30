@@ -1,7 +1,7 @@
 {
     "name": "go-allocations-vsix",
     "displayName": "Go Allocations Explorer",
-    "description": "An extension that helps locate Go allocations, using your benchmarks. Requires the Go extension.",
+    "description": "An extension that helps locate Go allocations, using your benchmarks.",
     "icon": "images/memory.goblue.png",
     "version": "0.3.1",
     "publisher": "Clipperhouse",

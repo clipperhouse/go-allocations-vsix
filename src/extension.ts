@@ -2,35 +2,6 @@ import * as vscode from 'vscode';
 import { Provider, Item, ModuleItem, PackageItem, BenchmarkItem, AllocationItem } from './provider';
 
 export async function activate(context: vscode.ExtensionContext) {
-    console.log('Go Allocations Explorer: Activating...');
-
-    // Check if Go extension is available (required for gopls)
-    const goExtension = vscode.extensions.getExtension('golang.go');
-    if (!goExtension) {
-        const message = 'Go Allocations Explorer requires the Go extension to be installed. Please install the Go extension and reload VS Code.';
-        vscode.window.showErrorMessage(message, 'Install Go Extension').then(selection => {
-            if (selection === 'Install Go Extension') {
-                vscode.commands.executeCommand('workbench.extensions.installExtension', 'golang.go');
-            }
-        });
-        console.error('Go Allocations Explorer: Go extension not found');
-        return; // Don't activate if Go extension is missing
-    }
-
-    // Ensure Go extension is activated
-    if (!goExtension.isActive) {
-        console.log('Go Allocations Explorer: Activating Go extension...');
-        try {
-            await goExtension.activate();
-            console.log('Go Allocations Explorer: Go extension activated successfully');
-        } catch (error) {
-            const message = 'Failed to activate Go extension. Go Allocations Explorer requires gopls to function.';
-            vscode.window.showErrorMessage(message);
-            console.error('Go Allocations Explorer: Failed to activate Go extension:', error);
-            return;
-        }
-    }
-
     const provider = new Provider();
 
     let options: vscode.TreeViewOptions<Item> = {
