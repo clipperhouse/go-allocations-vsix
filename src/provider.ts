@@ -358,14 +358,6 @@ export class Provider implements vscode.TreeDataProvider<Item> {
                 throw new Error('Operation cancelled');
             }
 
-            // Ensure Go extension is available and active (for gopls)
-            const goExtension = vscode.extensions.getExtension('golang.go');
-            if (goExtension && !goExtension.isActive) {
-                console.log('Go extension not active, activating...');
-                await goExtension.activate();
-                console.log('Go extension activated');
-            }
-
             const rootPath = workspaceFolder.uri.fsPath;
 
             // Get the module name for this workspace (still need go list for this)
