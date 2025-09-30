@@ -277,15 +277,50 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         }
 
         try {
-            console.log('Using gopls for package and benchmark discovery');
+            console.log('Using workspace symbol search for benchmark discovery');
 
+            // Get all benchmark symbols once for the entire workspace
+            console.log('Searching for benchmark functions via workspace symbols...');
+            let allBenchmarkSymbols: Array<{ name: string; fileUri: vscode.Uri }> = [];
+
+            try {
+                // Search for all symbols containing "Benchmark" across the workspace
+                const workspaceSymbols = await vscode.commands.executeCommand(
+                    'vscode.executeWorkspaceSymbolProvider',
+                    'Benchmark'
+                ) as vscode.SymbolInformation[];
+
+                if (workspaceSymbols) {
+                    for (const symbol of workspaceSymbols) {
+                        // Filter for functions only
+                        if (symbol.kind !== vscode.SymbolKind.Function) continue;
+
+                        // Filter for test files only
+                        if (!symbol.location.uri.fsPath.endsWith('_test.go')) continue;
+
+                        // Filter for proper benchmark function names
+                        if (!this.benchmarkNameRegex.test(symbol.name)) continue;
+
+                        allBenchmarkSymbols.push({
+                            name: symbol.name,
+                            fileUri: symbol.location.uri
+                        });
+                    }
+                }
+            } catch (error) {
+                console.warn('Workspace symbol search failed:', error);
+            }
+
+            console.log(`Found ${allBenchmarkSymbols.length} benchmark functions total`);
+
+            // Process each workspace folder with the filtered symbols
             for (const workspaceFolder of vscode.workspace.workspaceFolders) {
                 if (signal.aborted) {
                     throw new Error('Operation cancelled');
                 }
 
                 try {
-                    await this.loadPackagesFromWorkspace(workspaceFolder);
+                    await this.loadPackagesFromWorkspace(workspaceFolder, allBenchmarkSymbols);
                 } catch (error) {
                     if (signal.aborted) {
                         throw error;
@@ -295,7 +330,7 @@ export class Provider implements vscode.TreeDataProvider<Item> {
                 }
             }
 
-            console.log('Discovery completed using gopls');
+            console.log('Discovery completed using workspace symbols');
         } catch (error) {
             if (signal.aborted) {
                 console.log('Package loading cancelled');
@@ -312,7 +347,10 @@ export class Provider implements vscode.TreeDataProvider<Item> {
     /**
      * Load packages and benchmarks using workspace symbol search
      */
-    private async loadPackagesFromWorkspace(workspaceFolder: vscode.WorkspaceFolder): Promise<void> {
+    private async loadPackagesFromWorkspace(
+        workspaceFolder: vscode.WorkspaceFolder,
+        allBenchmarkSymbols: Array<{ name: string; fileUri: vscode.Uri }>
+    ): Promise<void> {
         const signal = this.abortSignal();
 
         try {
@@ -351,47 +389,16 @@ export class Provider implements vscode.TreeDataProvider<Item> {
                 this.modules.push(module);
             }
 
-            // Use workspace symbol provider to find all benchmark functions at once
-            console.log('Searching for benchmark functions via workspace symbols...');
-
+            // Filter benchmark symbols for this workspace folder
             if (signal.aborted) {
                 throw new Error('Operation cancelled');
             }
 
-            const benchmarkSymbols: Array<{ name: string; fileUri: vscode.Uri }> = [];
+            const benchmarkSymbols = allBenchmarkSymbols.filter(symbol =>
+                symbol.fileUri.fsPath.startsWith(rootPath)
+            );
 
-            try {
-                // Search for all symbols containing "Benchmark" across the workspace
-                const workspaceSymbols = await vscode.commands.executeCommand(
-                    'vscode.executeWorkspaceSymbolProvider',
-                    'Benchmark'
-                ) as vscode.SymbolInformation[];
-
-                if (workspaceSymbols) {
-                    for (const symbol of workspaceSymbols) {
-                        // Filter for functions only
-                        if (symbol.kind !== vscode.SymbolKind.Function) continue;
-
-                        // Filter for test files only
-                        if (!symbol.location.uri.fsPath.endsWith('_test.go')) continue;
-
-                        // Filter to only include files within this workspace folder
-                        if (!symbol.location.uri.fsPath.startsWith(rootPath)) continue;
-
-                        // Filter for proper benchmark function names
-                        if (!this.benchmarkNameRegex.test(symbol.name)) continue;
-
-                        benchmarkSymbols.push({
-                            name: symbol.name,
-                            fileUri: symbol.location.uri
-                        });
-                    }
-                }
-            } catch (error) {
-                console.warn('Workspace symbol search failed:', error);
-            }
-
-            console.log(`Found ${benchmarkSymbols.length} benchmark functions via workspace symbols`);
+            console.log(`Found ${benchmarkSymbols.length} benchmark functions in ${workspaceFolder.name}`);
 
             // Group benchmarks by package directory
             const packageMap = new Map<string, { name: string; path: string; benchmarks: string[] }>();
@@ -434,8 +441,6 @@ export class Provider implements vscode.TreeDataProvider<Item> {
             throw error; // Let the caller handle the error
         }
     }
-
-
 
     /**
      * Helper method to determine package name from directory path
