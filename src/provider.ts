@@ -438,8 +438,7 @@ export class Provider implements vscode.TreeDataProvider<Item> {
             }
         }
 
-        // Use relative path as package identifier
-        return relativePath.replace(/[/\\]/g, '/');
+        return relativePath.replaceAll('\\', '/');
     }
 
     private getPackagesForModule(moduleItem: ModuleItem): PackageItem[] {
