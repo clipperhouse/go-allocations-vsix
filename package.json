@@ -115,11 +115,6 @@
                 "command": "goAllocations.test",
                 "title": "Test Extension",
                 "when": "true"
-            },
-            {
-                "command": "goAllocations.testDiscoveryPerformance",
-                "title": "Test Discovery Performance",
-                "when": "true"
             }
         ],
         "menus": {

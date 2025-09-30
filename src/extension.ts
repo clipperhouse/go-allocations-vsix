@@ -102,53 +102,6 @@ export async function activate(context: vscode.ExtensionContext) {
         });
     context.subscriptions.push(runSingleBenchmark);
 
-    const testDiscoveryPerformance = vscode.commands.registerCommand('goAllocations.testDiscoveryPerformance',
-        async () => {
-            const output = vscode.window.createOutputChannel('Go Allocations Discovery Test');
-            output.clear();
-            output.show();
-
-            try {
-                output.appendLine('=== Gopls Discovery Performance Test ===\n');
-
-                const testProvider = new Provider();
-                const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-                if (!workspaceFolder) {
-                    output.appendLine('No workspace folder found');
-                    return;
-                }
-
-                output.appendLine('Testing gopls-based discovery...');
-                const startTime = Date.now();
-                await (testProvider as any).loadPackagesFromWorkspace(workspaceFolder.uri.fsPath);
-                const discoveryTime = Date.now() - startTime;
-
-                output.appendLine(`\n=== Results ===`);
-                output.appendLine(`Gopls discovery completed in ${discoveryTime}ms`);
-
-                // Count discovered items
-                const moduleCount = (testProvider as any).modules.length;
-                let packageCount = 0;
-                let benchmarkCount = 0;
-
-                for (const module of (testProvider as any).modules) {
-                    packageCount += module.packages.length;
-                    for (const pkg of module.packages) {
-                        benchmarkCount += pkg.benchmarks.length;
-                    }
-                }
-
-                output.appendLine(`Found: ${moduleCount} modules, ${packageCount} packages, ${benchmarkCount} benchmarks`);
-                vscode.window.showInformationMessage(`Discovery completed in ${discoveryTime}ms. Found ${benchmarkCount} benchmarks across ${packageCount} packages.`);
-
-            } catch (error) {
-                output.appendLine(`Error during discovery test: ${error}`);
-                console.error('Discovery test error:', error);
-                vscode.window.showErrorMessage(`Discovery test failed: ${error}`);
-            }
-        });
-    context.subscriptions.push(testDiscoveryPerformance);
-
     const refresh = vscode.commands.registerCommand('goAllocations.refresh',
         () => provider.refresh());
     context.subscriptions.push(refresh);
