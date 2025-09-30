@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { Provider, Item, ModuleItem, PackageItem, BenchmarkItem, AllocationItem } from './provider';
+import { Provider, Item, BenchmarkItem, AllocationItem } from './provider';
 
 export async function activate(context: vscode.ExtensionContext) {
     const provider = new Provider();
