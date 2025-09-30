@@ -509,7 +509,7 @@ export class Provider implements vscode.TreeDataProvider<Item> {
             const memprofilerate = 1024 * 64; // 64K
 
             // Use shell-quote to safely escape the benchmark name
-            const cmd = `go test -bench=^${escapedBenchmarkName}$ -memprofile=${memprofilePath} -run=^$ -gcflags="all=-N -l" -memprofilerate=${memprofilerate}`;
+            const cmd = `go test -bench=^${escapedBenchmarkName}$ -memprofile=${memprofilePath} -run=^$ -memprofilerate=${memprofilerate}`;
 
             try {
                 const { stdout, stderr } = await execAsync(
