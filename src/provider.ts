@@ -123,16 +123,18 @@ export interface AllocationData {
     functionName: string;
 }
 
+interface ModuleCache {
+    name: string;
+    path: string;
+    packages: { name: string; path: string; benchmarks: string[] }[]
+}
+
 export class Provider implements vscode.TreeDataProvider<Item> {
     public _onDidChangeTreeData: vscode.EventEmitter<Item | undefined | null | void> = new vscode.EventEmitter<Item | undefined | null | void>();
     readonly onDidChangeTreeData: vscode.Event<Item | undefined | null | void> = this._onDidChangeTreeData.event;
 
     // Cache for discovered modules and their packages
-    private modules: {
-        name: string;
-        path: string;
-        packages: { name: string; path: string; benchmarks: string[] }[]
-    }[] = [];
+    private modules: ModuleCache[] = [];
     private packagesLoaded = false;
     private discoveryInProgress = false;
 
@@ -285,28 +287,19 @@ export class Provider implements vscode.TreeDataProvider<Item> {
 
             try {
                 // Search for all symbols containing "Benchmark" across the workspace
-                const workspaceSymbols = await vscode.commands.executeCommand(
+                const workspaceSymbols: vscode.SymbolInformation[] = await vscode.commands.executeCommand(
                     'vscode.executeWorkspaceSymbolProvider',
                     'Benchmark'
-                ) as vscode.SymbolInformation[];
+                );
 
-                if (workspaceSymbols) {
-                    for (const symbol of workspaceSymbols) {
-                        // Filter for functions only
-                        if (symbol.kind !== vscode.SymbolKind.Function) continue;
-
-                        // Filter for test files only
-                        if (!symbol.location.uri.fsPath.endsWith('_test.go')) continue;
-
-                        // Filter for proper benchmark function names
-                        if (!this.benchmarkNameRegex.test(symbol.name)) continue;
-
-                        allBenchmarkSymbols.push({
-                            name: symbol.name,
-                            fileUri: symbol.location.uri
-                        });
-                    }
-                }
+                allBenchmarkSymbols = workspaceSymbols.filter(symbol =>
+                    symbol.kind === vscode.SymbolKind.Function &&
+                    symbol.location.uri.fsPath.endsWith('_test.go') &&
+                    this.benchmarkNameRegex.test(symbol.name)
+                ).map(symbol => ({
+                    name: symbol.name,
+                    fileUri: symbol.location.uri
+                }));
             } catch (error) {
                 console.warn('Workspace symbol search failed:', error);
             }
@@ -370,16 +363,13 @@ export class Provider implements vscode.TreeDataProvider<Item> {
                 return; // Skip if not a valid module
             }
 
-            // Find or create module entry
-            let module = this.modules.find(m => m.name === moduleName.trim());
-            if (!module) {
-                module = {
-                    name: moduleName.trim(),
-                    path: rootPath,
-                    packages: []
-                };
-                this.modules.push(module);
-            }
+            // Create module entry (each workspace folder should have a unique module)
+            const module: ModuleCache = {
+                name: moduleName.trim(),
+                path: rootPath,
+                packages: []
+            };
+            this.modules.push(module);
 
             // Filter benchmark symbols for this workspace folder
             if (signal.aborted) {
