@@ -123,16 +123,18 @@ export interface AllocationData {
     functionName: string;
 }
 
+interface ModuleCache {
+    name: string;
+    path: string;
+    packages: { name: string; path: string; benchmarks: string[] }[]
+}
+
 export class Provider implements vscode.TreeDataProvider<Item> {
     public _onDidChangeTreeData: vscode.EventEmitter<Item | undefined | null | void> = new vscode.EventEmitter<Item | undefined | null | void>();
     readonly onDidChangeTreeData: vscode.Event<Item | undefined | null | void> = this._onDidChangeTreeData.event;
 
     // Cache for discovered modules and their packages
-    private modules: {
-        name: string;
-        path: string;
-        packages: { name: string; path: string; benchmarks: string[] }[]
-    }[] = [];
+    private modules: ModuleCache[] = [];
     private packagesLoaded = false;
     private discoveryInProgress = false;
 
@@ -166,7 +168,6 @@ export class Provider implements vscode.TreeDataProvider<Item> {
 
         return pkg.name;
     }
-
 
     clearBenchmarkRunState(item: BenchmarkItem): void {
         this._onDidChangeTreeData.fire(item);
@@ -278,20 +279,51 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         }
 
         try {
+            console.log('Using workspace symbol search for benchmark discovery');
+
+            // Get all benchmark symbols once for the entire workspace
+            console.log('Searching for benchmark functions via workspace symbols...');
+            let allBenchmarkSymbols: Array<{ name: string; fileUri: vscode.Uri }> = [];
+
+            try {
+                // Search for all symbols containing "Benchmark" across the workspace
+                const workspaceSymbols: vscode.SymbolInformation[] = await vscode.commands.executeCommand(
+                    'vscode.executeWorkspaceSymbolProvider',
+                    'Benchmark'
+                );
+
+                allBenchmarkSymbols = workspaceSymbols.filter(symbol =>
+                    symbol.kind === vscode.SymbolKind.Function &&
+                    symbol.location.uri.fsPath.endsWith('_test.go') &&
+                    this.benchmarkNameRegex.test(symbol.name)
+                ).map(symbol => ({
+                    name: symbol.name,
+                    fileUri: symbol.location.uri
+                }));
+            } catch (error) {
+                console.warn('Workspace symbol search failed:', error);
+            }
+
+            console.log(`Found ${allBenchmarkSymbols.length} benchmark functions total`);
+
+            // Process each workspace folder with the filtered symbols
             for (const workspaceFolder of vscode.workspace.workspaceFolders) {
                 if (signal.aborted) {
                     throw new Error('Operation cancelled');
                 }
 
                 try {
-                    await this.loadPackagesFromWorkspace(workspaceFolder.uri.fsPath);
+                    await this.loadPackagesFromWorkspace(workspaceFolder, allBenchmarkSymbols);
                 } catch (error) {
                     if (signal.aborted) {
                         throw error;
                     }
                     console.error('Error processing workspace folder:', error);
+                    throw error; // Don't silently continue if gopls fails
                 }
             }
+
+            console.log('Discovery completed using workspace symbols');
         } catch (error) {
             if (signal.aborted) {
                 console.log('Package loading cancelled');
@@ -304,7 +336,14 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         }
     }
 
-    private async loadPackagesFromWorkspace(rootPath: string): Promise<void> {
+    private readonly benchmarkNameRegex = /^Benchmark[A-Z_]/;
+    /**
+     * Load packages and benchmarks using workspace symbol search
+     */
+    private async loadPackagesFromWorkspace(
+        workspaceFolder: vscode.WorkspaceFolder,
+        allBenchmarkSymbols: Array<{ name: string; fileUri: vscode.Uri }>
+    ): Promise<void> {
         const signal = this.abortSignal();
 
         try {
@@ -312,7 +351,9 @@ export class Provider implements vscode.TreeDataProvider<Item> {
                 throw new Error('Operation cancelled');
             }
 
-            // Get the module name for this workspace
+            const rootPath = workspaceFolder.uri.fsPath;
+
+            // Get the module name for this workspace (still need go list for this)
             const { stdout: moduleName } = await execAsync('go list -m', {
                 cwd: rootPath,
                 signal: signal
@@ -322,86 +363,82 @@ export class Provider implements vscode.TreeDataProvider<Item> {
                 return; // Skip if not a valid module
             }
 
-            // Find or create module entry
-            let module = this.modules.find(m => m.name === moduleName.trim());
-            if (!module) {
-                module = {
-                    name: moduleName.trim(),
-                    path: rootPath,
-                    packages: []
-                };
-                this.modules.push(module);
+            // Create module entry (each workspace folder should have a unique module)
+            const module: ModuleCache = {
+                name: moduleName.trim(),
+                path: rootPath,
+                packages: []
+            };
+            this.modules.push(module);
+
+            // Filter benchmark symbols for this workspace folder
+            if (signal.aborted) {
+                throw new Error('Operation cancelled');
             }
 
-            // Get all packages first
-            const { stdout: packagesOutput } = await execAsync('go list -f "{{.Name}} {{.Dir}}" ./...', {
-                cwd: rootPath,
-                signal: signal
-            });
-            const packageLines = packagesOutput.trim().split('\n');
+            const benchmarkSymbols = allBenchmarkSymbols.filter(symbol =>
+                symbol.fileUri.fsPath.startsWith(rootPath)
+            );
 
-            // Process each package and discover benchmarks, updating tree after each discovery
-            for (let line of packageLines) {
+            console.log(`Found ${benchmarkSymbols.length} benchmark functions in ${workspaceFolder.name}`);
+
+            // Group benchmarks by package directory
+            const packageMap = new Map<string, { name: string; path: string; benchmarks: string[] }>();
+
+            for (const symbol of benchmarkSymbols) {
                 if (signal.aborted) {
                     throw new Error('Operation cancelled');
                 }
 
-                line = line.trim();
-                if (!line) {
-                    continue;
+                const packageDir = path.dirname(symbol.fileUri.fsPath);
+                const packageName = await this.getPackageNameFromPath(packageDir, rootPath);
+
+                if (!packageMap.has(packageDir)) {
+                    packageMap.set(packageDir, {
+                        name: packageName,
+                        path: packageDir,
+                        benchmarks: []
+                    });
                 }
 
-                const parts = line.split(' ');
-                if (parts.length < 2) {
-                    continue;
-                }
+                packageMap.get(packageDir)!.benchmarks.push(symbol.name);
+            }
 
-                const packageName = parts[0];
-                const packageDir = parts.slice(1).join(' ');
+            // Add packages with benchmarks to the module
+            for (const pkg of packageMap.values()) {
+                if (pkg.benchmarks.length > 0) {
+                    module.packages.push(pkg);
+                    console.log(`Added package ${pkg.name} with ${pkg.benchmarks.length} benchmarks`);
 
-                try {
-                    // Get benchmark functions for this package
-                    const { stdout: benchmarksOutput } = await execAsync(
-                        'go test -list="^Benchmark[_A-Z][^/]*$"',
-                        {
-                            cwd: packageDir,
-                            signal: signal
-                        }
-                    );
-
-                    const benchmarkLines = benchmarksOutput.trim().split('\n');
-                    const benchmarks = benchmarkLines
-                        .filter(line => line.startsWith('Benchmark') && !line.includes('ok'))
-                        .map(line => line.trim());
-
-                    if (benchmarks.length > 0) {
-                        if (signal.aborted) {
-                            throw new Error('Operation cancelled');
-                        }
-
-                        // Add package with its benchmarks to the module
-                        const pkg = { name: packageName, path: packageDir, benchmarks };
-                        module.packages.push(pkg);
-
-                        // Fire tree data change event to render this module immediately
-                        this._onDidChangeTreeData.fire();
-                    }
-                } catch (packageError) {
-                    if (signal.aborted) {
-                        throw packageError;
-                    }
-                    // Skip packages that can't be tested (e.g., no test files)
-                    console.warn(`Could not test package ${packageName}:`, packageError);
+                    // Fire update immediately for responsive UI
+                    this._onDidChangeTreeData.fire();
                 }
             }
         } catch (error) {
             if (signal.aborted) {
-                console.log('Package discovery cancelled');
+                console.log('Gopls package discovery cancelled');
                 throw error;
             }
-            console.error('Error loading packages from workspace:', error);
-            throw error;
+            console.error('Gopls discovery failed:', error);
+            throw error; // Let the caller handle the error
         }
+    }
+
+    /**
+     * Helper method to determine package name from directory path
+     */
+    private async getPackageNameFromPath(packageDir: string, rootPath: string): Promise<string> {
+        const relativePath = path.relative(rootPath, packageDir);
+        if (relativePath === '') {
+            try {
+                const { stdout } = await execAsync('go list -f "{{.Name}}" .', { cwd: packageDir });
+                return stdout.trim();
+            } catch {
+                return relativePath;
+            }
+        }
+
+        return relativePath.replaceAll('\\', '/');
     }
 
     private getPackagesForModule(moduleItem: ModuleItem): PackageItem[] {

@@ -8,6 +8,9 @@
     "engines": {
         "vscode": "^1.74.0"
     },
+    "extensionDependencies": [
+        "golang.go"
+    ],
     "categories": [
         "Debuggers",
         "Testing"

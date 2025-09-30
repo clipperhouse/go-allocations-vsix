@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { Provider, Item, ModuleItem, PackageItem, BenchmarkItem, AllocationItem } from './provider';
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
     const provider = new Provider();
 
     let options: vscode.TreeViewOptions<Item> = {
