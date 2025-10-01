@@ -78,11 +78,11 @@ export async function activate(context: vscode.ExtensionContext) {
         () => provider.refresh());
     context.subscriptions.push(refresh);
 
-    // Register a CodeLens provider for Go benchmark functions (slightly delayed to appear after Go's lenses)
-    setTimeout(() => {
-        const codeLensProvider = vscode.languages.registerCodeLensProvider({ language: 'go', scheme: 'file' }, new GoBenchmarkCodeLensProvider());
-        context.subscriptions.push(codeLensProvider);
-    }, 200);
+    // Register a CodeLens provider for Go benchmark functions
+    // Note: CodeLens ordering from multiple providers is determined by the range position.
+    // To appear after the Go extension's lenses, we use a range that starts slightly to the right.
+    const codeLensProvider = vscode.languages.registerCodeLensProvider({ language: 'go', scheme: 'file' }, new GoBenchmarkCodeLensProvider());
+    context.subscriptions.push(codeLensProvider);
 
     // Command invoked by CodeLens in editor to run a specific benchmark
     const runBenchmarkFromEditor = vscode.commands.registerCommand('goAllocations.runBenchmarkFromEditor', async (args: { packageDir: string; benchmarkName: string }) => {
@@ -90,11 +90,10 @@ export async function activate(context: vscode.ExtensionContext) {
             if (!args || !args.packageDir || !args.benchmarkName) {
                 throw new Error('Missing benchmark information from editor.');
             }
-
-            const benchmarkItem = await provider.findBenchmarkOrThrow(args.packageDir, args.benchmarkName);
-
             // Focus the Go Allocations Explorer view
             await vscode.commands.executeCommand('workbench.view.extension.goAllocations');
+
+            const benchmarkItem = await provider.findBenchmark(args.packageDir, args.benchmarkName);
 
             // Reveal the benchmark; TreeView will resolve parents via getParent
             await treeView.reveal(benchmarkItem, { expand: true });
@@ -125,7 +124,9 @@ class GoBenchmarkCodeLensProvider implements vscode.CodeLensProvider {
             const m = line.text.match(this.benchRegex);
             if (m) {
                 const benchName = m[1];
-                // Use the full line range; ordering with other lenses is not guaranteed
+                // Unfortunately, there is no official API to control CodeLens ordering across providers.
+                // The best we can do is use the same range as the Go extension and hope VS Code's merge
+                // algorithm places ours in a reasonable position.
                 const range = new vscode.Range(i, 0, i, line.text.length);
                 const packageDir = this.getPackageDir(document.uri);
                 const cmd: vscode.Command = {

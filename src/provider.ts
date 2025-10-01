@@ -806,7 +806,7 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
     }
 
     /** Find a BenchmarkItem by walking the provider using ModuleCache; no mutation. */
-    async findBenchmarkOrThrow(packagePath: string, benchmarkName: string): Promise<BenchmarkItem> {
+    async findBenchmark(packagePath: string, benchmarkName: string): Promise<BenchmarkItem> {
         // Root: modules
         const rootChildren = await this.getChildren();
         const modules = rootChildren.filter((i): i is ModuleItem => i instanceof ModuleItem);
