@@ -805,8 +805,8 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
         }
     }
 
-    /** Find module->package->benchmark items by walking the provider using ModuleCache; no mutation. */
-    async findBenchmarkChainOrThrow(packagePath: string, benchmarkName: string): Promise<{ moduleItem: ModuleItem; packageItem: PackageItem; benchmarkItem: BenchmarkItem }> {
+    /** Find a BenchmarkItem by walking the provider using ModuleCache; no mutation. */
+    async findBenchmarkOrThrow(packagePath: string, benchmarkName: string): Promise<BenchmarkItem> {
         // Root: modules
         const rootChildren = await this.getChildren();
         const modules = rootChildren.filter((i): i is ModuleItem => i instanceof ModuleItem);
@@ -831,6 +831,6 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
             throw new Error(`Benchmark not found: ${benchmarkName} in package ${packageItem.filePath}`);
         }
 
-        return { moduleItem, packageItem, benchmarkItem };
+        return benchmarkItem;
     }
 }

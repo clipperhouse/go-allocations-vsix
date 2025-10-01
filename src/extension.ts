@@ -89,14 +89,12 @@ export async function activate(context: vscode.ExtensionContext) {
                 throw new Error('Missing benchmark information from editor.');
             }
 
-            const { moduleItem, packageItem, benchmarkItem } = await provider.findBenchmarkChainOrThrow(args.packageDir, args.benchmarkName);
+            const benchmarkItem = await provider.findBenchmarkOrThrow(args.packageDir, args.benchmarkName);
 
             // Focus the Go Allocations Explorer view
             await vscode.commands.executeCommand('workbench.view.extension.goAllocations');
 
-            // Reveal in order so the view can materialize the hierarchy
-            await treeView.reveal(moduleItem, { expand: true });
-            await treeView.reveal(packageItem, { expand: true });
+            // Reveal the benchmark; TreeView will resolve parents via getParent
             await treeView.reveal(benchmarkItem, { expand: true });
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
