@@ -44,7 +44,9 @@
         "email": "mwsherman@gmail.com"
     },
     "activationEvents": [
-        "workspaceContains:**/*_test.go"
+        "workspaceContains:**/*_test.go",
+        "onLanguage:go",
+        "onCommand:goAllocations.runBenchmarkFromEditor"
     ],
     "main": "./out/extension.js",
     "contributes": {
@@ -115,6 +117,11 @@
                 "command": "goAllocations.test",
                 "title": "Test Extension",
                 "when": "true"
+            },
+            {
+                "command": "goAllocations.runBenchmarkFromEditor",
+                "title": "Go Allocations: Run Benchmark from Editor",
+                "category": "Go Allocations"
             }
         ],
         "menus": {

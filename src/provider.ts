@@ -138,6 +138,11 @@ export class Provider implements vscode.TreeDataProvider<Item> {
     private packagesLoaded = false;
     private discoveryInProgress = false;
 
+    // Cache for tree items so we can reliably reveal items from external commands
+    private moduleItems = new Map<string, ModuleItem>(); // key: module.path
+    private packageItems = new Map<string, PackageItem>(); // key: pkg.path
+    private benchmarkItems = new Map<string, BenchmarkItem>(); // key: `${pkg.path}::${benchmarkName}`
+
     constructor() { }
 
     private abortController: AbortController = new AbortController();
@@ -184,6 +189,11 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         this.modules = [];
         this.packagesLoaded = false;
         this.discoveryInProgress = false;
+
+        // Clear item caches
+        this.moduleItems.clear();
+        this.packageItems.clear();
+        this.benchmarkItems.clear();
 
         // Fire tree data change event to refresh the view
         this._onDidChangeTreeData.fire();
@@ -244,10 +254,14 @@ export class Provider implements vscode.TreeDataProvider<Item> {
             );
 
             // Return currently discovered modules immediately (even if loading is still in progress)
-            const moduleItems = this.modules.map(module => new ModuleItem(
-                module.name,
-                module.path
-            ));
+            const moduleItems = this.modules.map(module => {
+                let item = this.moduleItems.get(module.path);
+                if (!item) {
+                    item = new ModuleItem(module.name, module.path);
+                    this.moduleItems.set(module.path, item);
+                }
+                return item;
+            });
 
             return [instruction, ...moduleItems];
         }
@@ -450,11 +464,18 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         const packages: PackageItem[] = [];
 
         for (const pkg of module.packages) {
-            const item = new PackageItem(
-                this.getPackageLabel(pkg),
-                pkg.path,
-                moduleItem
-            );
+            let item = this.packageItems.get(pkg.path);
+            if (!item) {
+                item = new PackageItem(
+                    this.getPackageLabel(pkg),
+                    pkg.path,
+                    moduleItem
+                );
+                this.packageItems.set(pkg.path, item);
+            } else {
+                // Ensure parent linkage is current
+                (item as any).parent = moduleItem;
+            }
             packages.push(item);
         }
 
@@ -476,11 +497,19 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         const benchmarks: BenchmarkItem[] = [];
 
         for (const benchmark of pkg.benchmarks) {
-            const item = new BenchmarkItem(
-                benchmark,
-                packageItem.filePath,
-                packageItem
-            );
+            const key = `${packageItem.filePath}::${benchmark}`;
+            let item = this.benchmarkItems.get(key);
+            if (!item) {
+                item = new BenchmarkItem(
+                    benchmark,
+                    packageItem.filePath,
+                    packageItem
+                );
+                this.benchmarkItems.set(key, item);
+            } else {
+                // Ensure parent linkage is current
+                (item as any).parent = packageItem;
+            }
             benchmarks.push(item);
         }
 
@@ -804,5 +833,66 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
             console.error('Error running all benchmarks:', error);
             throw error;
         }
+    }
+
+    /** Wait until package discovery is completed. Triggers discovery if needed. */
+    async ensurePackagesLoaded(): Promise<void> {
+        // If already loaded, fast path
+        if (this.packagesLoaded) return;
+
+        // Trigger discovery
+        try {
+            await this.getChildren();
+        } catch {
+            // ignore
+        }
+
+        // Wait for completion
+        await new Promise<void>((resolve) => {
+            const disposable = this.onDidChangeTreeData(() => {
+                if (this.packagesLoaded && !this.discoveryInProgress) {
+                    disposable.dispose();
+                    resolve();
+                }
+            });
+        });
+    }
+
+    /** Locate an existing BenchmarkItem by package path and benchmark name, or return undefined. */
+    findBenchmarkItem(packagePath: string, benchmarkName: string): BenchmarkItem | undefined {
+        // Locate module containing this package
+        const module = this.modules.find(m => packagePath.startsWith(m.path));
+        if (!module) return undefined;
+
+        const pkg = module.packages.find(p => p.path === packagePath);
+        if (!pkg) return undefined;
+
+        if (!pkg.benchmarks.includes(benchmarkName)) return undefined;
+
+        // Ensure parent chain exists in caches
+        let moduleItem = this.moduleItems.get(module.path);
+        if (!moduleItem) {
+            moduleItem = new ModuleItem(module.name, module.path);
+            this.moduleItems.set(module.path, moduleItem);
+        }
+
+        let packageItem = this.packageItems.get(pkg.path);
+        if (!packageItem) {
+            packageItem = new PackageItem(this.getPackageLabel(pkg), pkg.path, moduleItem);
+            this.packageItems.set(pkg.path, packageItem);
+        } else {
+            (packageItem as any).parent = moduleItem;
+        }
+
+        const key = `${pkg.path}::${benchmarkName}`;
+        let benchmarkItem = this.benchmarkItems.get(key);
+        if (!benchmarkItem) {
+            benchmarkItem = new BenchmarkItem(benchmarkName, pkg.path, packageItem);
+            this.benchmarkItems.set(key, benchmarkItem);
+        } else {
+            (benchmarkItem as any).parent = packageItem;
+        }
+
+        return benchmarkItem;
     }
 }

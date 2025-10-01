@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { Provider, Item, BenchmarkItem, AllocationItem } from './provider';
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -76,6 +77,74 @@ export async function activate(context: vscode.ExtensionContext) {
     const refresh = vscode.commands.registerCommand('goAllocations.refresh',
         () => provider.refresh());
     context.subscriptions.push(refresh);
+
+    // Register a CodeLens provider for Go benchmark functions
+    const codeLensProvider = vscode.languages.registerCodeLensProvider({ language: 'go', scheme: 'file' }, new GoBenchmarkCodeLensProvider(provider, () => treeView));
+    context.subscriptions.push(codeLensProvider);
+
+    // Command invoked by CodeLens in editor to run a specific benchmark
+    const runBenchmarkFromEditor = vscode.commands.registerCommand('goAllocations.runBenchmarkFromEditor', async (args: { packageDir: string; benchmarkName: string }) => {
+        if (!args || !args.packageDir || !args.benchmarkName) {
+            return;
+        }
+
+        // Ensure discovery is ready so we can reveal the correct tree item
+        await provider.ensurePackagesLoaded();
+
+        const item = provider.findBenchmarkItem(args.packageDir, args.benchmarkName);
+        if (!item) {
+            vscode.window.showWarningMessage(`Benchmark ${args.benchmarkName} not found in Go Allocations Explorer.`);
+            return;
+        }
+
+        // Focus the Go Allocations Explorer view
+        await vscode.commands.executeCommand('workbench.view.extension.goAllocations');
+
+        // Trigger the run by revealing the item (which loads children)
+        await treeView.reveal(item, { expand: true });
+    });
+    context.subscriptions.push(runBenchmarkFromEditor);
 }
 
 export function deactivate() { }
+
+class GoBenchmarkCodeLensProvider implements vscode.CodeLensProvider {
+    private readonly benchRegex = /^\s*func\s+(Benchmark[\w\d_]*)\s*\(b\s*\*testing\.B\)/;
+    private onDidChangeCodeLensesEmitter = new vscode.EventEmitter<void>();
+    public readonly onDidChangeCodeLenses: vscode.Event<void> = this.onDidChangeCodeLensesEmitter.event;
+
+    constructor(private provider: Provider, private getTreeView: () => vscode.TreeView<Item>) { }
+
+    provideCodeLenses(document: vscode.TextDocument, _token: vscode.CancellationToken): vscode.ProviderResult<vscode.CodeLens[]> {
+        // Only add to _test.go files
+        if (!document.fileName.endsWith('_test.go')) return [];
+
+        const lenses: vscode.CodeLens[] = [];
+        for (let i = 0; i < document.lineCount; i++) {
+            const line = document.lineAt(i);
+            const m = line.text.match(this.benchRegex);
+            if (m) {
+                const benchName = m[1];
+                const range = new vscode.Range(i, 0, i, line.text.length);
+                const packageDir = this.getPackageDir(document.uri);
+                const cmd: vscode.Command = {
+                    command: 'goAllocations.runBenchmarkFromEditor',
+                    title: 'Run in Allocations Explorer',
+                    arguments: [{ packageDir, benchmarkName: benchName }]
+                };
+                lenses.push(new vscode.CodeLens(range, cmd));
+            }
+        }
+        return lenses;
+    }
+
+    // Resolve not needed since we provide command inline
+    resolveCodeLens?(codeLens: vscode.CodeLens, _token: vscode.CancellationToken): vscode.ProviderResult<vscode.CodeLens> {
+        return codeLens;
+    }
+
+    private getPackageDir(uri: vscode.Uri): string {
+        // For Go, the package dir is the file's folder
+        return path.dirname(uri.fsPath);
+    }
+}
