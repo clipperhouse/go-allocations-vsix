@@ -797,31 +797,35 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
         }
     }
 
-    /** Find a BenchmarkItem by walking the provider using ModuleCache; no mutation. */
     async findBenchmark(packagePath: string, benchmarkName: string): Promise<BenchmarkItem> {
-        // Wait for the tree to be fully loaded before searching
         await this.ensureLoaded();
 
         // Root: modules
         const rootChildren = await this.getChildren();
-        const modules = rootChildren.filter((i): i is ModuleItem => i instanceof ModuleItem);
-        const moduleItem = modules.find(m => packagePath.startsWith(m.modulePath));
+        const moduleItem = rootChildren
+            .filter((m): m is ModuleItem => m instanceof ModuleItem)
+            .find(m => packagePath.startsWith(m.modulePath));
+
         if (!moduleItem) {
             throw new Error(`No Go module found containing path: ${packagePath}`);
         }
 
         // Packages under module
-        const pkgChildren = await this.getChildren(moduleItem);
-        const packages = pkgChildren.filter((i): i is PackageItem => i instanceof PackageItem);
-        const packageItem = packages.find(p => p.filePath === packagePath);
+        const moduleChildren = await this.getChildren(moduleItem);
+        const packageItem = moduleChildren
+            .filter((p): p is PackageItem => p instanceof PackageItem)
+            .find(p => p.filePath === packagePath);
+
         if (!packageItem) {
             throw new Error(`Go package not found in module for path: ${packagePath}`);
         }
 
         // Benchmarks under package
-        const benchChildren = await this.getChildren(packageItem);
-        const benchmarks = benchChildren.filter((i): i is BenchmarkItem => i instanceof BenchmarkItem);
-        const benchmarkItem = benchmarks.find(b => String(b.label) === benchmarkName);
+        const packageChildren = await this.getChildren(packageItem);
+        const benchmarkItem = packageChildren
+            .filter((b): b is BenchmarkItem => b instanceof BenchmarkItem)
+            .find(b => String(b.label) === benchmarkName);
+
         if (!benchmarkItem) {
             throw new Error(`Benchmark not found: ${benchmarkName} in package ${packageItem.filePath}`);
         }
@@ -829,11 +833,6 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
         return benchmarkItem;
     }
 
-    /**
-     * Ensures that the package loading has completed.
-     * If loading is in progress, waits for it to finish.
-     * If loading hasn't started, triggers it and waits for completion.
-     */
     async ensureLoaded(): Promise<void> {
         // Trigger loading if needed (getChildren will create loadingPromise if not started)
         if (!this.loadingPromise) {
