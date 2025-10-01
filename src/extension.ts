@@ -78,9 +78,11 @@ export async function activate(context: vscode.ExtensionContext) {
         () => provider.refresh());
     context.subscriptions.push(refresh);
 
-    // Register a CodeLens provider for Go benchmark functions
-    const codeLensProvider = vscode.languages.registerCodeLensProvider({ language: 'go', scheme: 'file' }, new GoBenchmarkCodeLensProvider(provider, () => treeView));
-    context.subscriptions.push(codeLensProvider);
+    // Register a CodeLens provider for Go benchmark functions (slightly delayed to appear after Go's lenses)
+    setTimeout(() => {
+        const codeLensProvider = vscode.languages.registerCodeLensProvider({ language: 'go', scheme: 'file' }, new GoBenchmarkCodeLensProvider());
+        context.subscriptions.push(codeLensProvider);
+    }, 200);
 
     // Command invoked by CodeLens in editor to run a specific benchmark
     const runBenchmarkFromEditor = vscode.commands.registerCommand('goAllocations.runBenchmarkFromEditor', async (args: { packageDir: string; benchmarkName: string }) => {
@@ -111,7 +113,7 @@ class GoBenchmarkCodeLensProvider implements vscode.CodeLensProvider {
     private onDidChangeCodeLensesEmitter = new vscode.EventEmitter<void>();
     public readonly onDidChangeCodeLenses: vscode.Event<void> = this.onDidChangeCodeLensesEmitter.event;
 
-    constructor(private provider: Provider, private getTreeView: () => vscode.TreeView<Item>) { }
+    constructor() { }
 
     provideCodeLenses(document: vscode.TextDocument, _token: vscode.CancellationToken): vscode.ProviderResult<vscode.CodeLens[]> {
         // Only add to _test.go files
@@ -123,11 +125,12 @@ class GoBenchmarkCodeLensProvider implements vscode.CodeLensProvider {
             const m = line.text.match(this.benchRegex);
             if (m) {
                 const benchName = m[1];
+                // Use the full line range; ordering with other lenses is not guaranteed
                 const range = new vscode.Range(i, 0, i, line.text.length);
                 const packageDir = this.getPackageDir(document.uri);
                 const cmd: vscode.Command = {
                     command: 'goAllocations.runBenchmarkFromEditor',
-                    title: 'Run in Allocations Explorer',
+                    title: 'find allocations',
                     arguments: [{ packageDir, benchmarkName: benchName }]
                 };
                 lenses.push(new vscode.CodeLens(range, cmd));
