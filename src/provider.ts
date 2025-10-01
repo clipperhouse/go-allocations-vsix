@@ -138,10 +138,7 @@ export class Provider implements vscode.TreeDataProvider<Item> {
     private packagesLoaded = false;
     private discoveryInProgress = false;
 
-    // Cache for tree items so we can reliably reveal items from external commands
-    private moduleItems = new Map<string, ModuleItem>(); // key: module.path
-    private packageItems = new Map<string, PackageItem>(); // key: pkg.path
-    private benchmarkItems = new Map<string, BenchmarkItem>(); // key: `${pkg.path}::${benchmarkName}`
+    // No secondary caches for TreeItems; use stable ids and ModuleCache as source of truth
 
     constructor() { }
 
@@ -189,11 +186,6 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         this.modules = [];
         this.packagesLoaded = false;
         this.discoveryInProgress = false;
-
-        // Clear item caches
-        this.moduleItems.clear();
-        this.packageItems.clear();
-        this.benchmarkItems.clear();
 
         // Fire tree data change event to refresh the view
         this._onDidChangeTreeData.fire();
@@ -254,14 +246,7 @@ export class Provider implements vscode.TreeDataProvider<Item> {
             );
 
             // Return currently discovered modules immediately (even if loading is still in progress)
-            const moduleItems = this.modules.map(module => {
-                let item = this.moduleItems.get(module.path);
-                if (!item) {
-                    item = new ModuleItem(module.name, module.path);
-                    this.moduleItems.set(module.path, item);
-                }
-                return item;
-            });
+            const moduleItems = this.modules.map(module => new ModuleItem(module.name, module.path));
 
             return [instruction, ...moduleItems];
         }
@@ -464,18 +449,11 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         const packages: PackageItem[] = [];
 
         for (const pkg of module.packages) {
-            let item = this.packageItems.get(pkg.path);
-            if (!item) {
-                item = new PackageItem(
-                    this.getPackageLabel(pkg),
-                    pkg.path,
-                    moduleItem
-                );
-                this.packageItems.set(pkg.path, item);
-            } else {
-                // Ensure parent linkage is current
-                (item as any).parent = moduleItem;
-            }
+            const item = new PackageItem(
+                this.getPackageLabel(pkg),
+                pkg.path,
+                moduleItem
+            );
             packages.push(item);
         }
 
@@ -497,19 +475,11 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         const benchmarks: BenchmarkItem[] = [];
 
         for (const benchmark of pkg.benchmarks) {
-            const key = `${packageItem.filePath}::${benchmark}`;
-            let item = this.benchmarkItems.get(key);
-            if (!item) {
-                item = new BenchmarkItem(
-                    benchmark,
-                    packageItem.filePath,
-                    packageItem
-                );
-                this.benchmarkItems.set(key, item);
-            } else {
-                // Ensure parent linkage is current
-                (item as any).parent = packageItem;
-            }
+            const item = new BenchmarkItem(
+                benchmark,
+                packageItem.filePath,
+                packageItem
+            );
             benchmarks.push(item);
         }
 
@@ -835,64 +805,32 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
         }
     }
 
-    /** Wait until package discovery is completed. Triggers discovery if needed. */
-    async ensurePackagesLoaded(): Promise<void> {
-        // If already loaded, fast path
-        if (this.packagesLoaded) return;
-
-        // Trigger discovery
-        try {
-            await this.getChildren();
-        } catch {
-            // ignore
-        }
-
-        // Wait for completion
-        await new Promise<void>((resolve) => {
-            const disposable = this.onDidChangeTreeData(() => {
-                if (this.packagesLoaded && !this.discoveryInProgress) {
-                    disposable.dispose();
-                    resolve();
-                }
-            });
-        });
-    }
-
-    /** Locate an existing BenchmarkItem by package path and benchmark name, or return undefined. */
-    findBenchmarkItem(packagePath: string, benchmarkName: string): BenchmarkItem | undefined {
-        // Locate module containing this package
-        const module = this.modules.find(m => packagePath.startsWith(m.path));
-        if (!module) return undefined;
-
-        const pkg = module.packages.find(p => p.path === packagePath);
-        if (!pkg) return undefined;
-
-        if (!pkg.benchmarks.includes(benchmarkName)) return undefined;
-
-        // Ensure parent chain exists in caches
-        let moduleItem = this.moduleItems.get(module.path);
+    /** Find module->package->benchmark items by walking the provider using ModuleCache; no mutation. */
+    async findBenchmarkChainOrThrow(packagePath: string, benchmarkName: string): Promise<{ moduleItem: ModuleItem; packageItem: PackageItem; benchmarkItem: BenchmarkItem }> {
+        // Root: modules
+        const rootChildren = await this.getChildren();
+        const modules = rootChildren.filter((i): i is ModuleItem => i instanceof ModuleItem);
+        const moduleItem = modules.find(m => packagePath.startsWith(m.modulePath));
         if (!moduleItem) {
-            moduleItem = new ModuleItem(module.name, module.path);
-            this.moduleItems.set(module.path, moduleItem);
+            throw new Error(`No Go module found containing path: ${packagePath}`);
         }
 
-        let packageItem = this.packageItems.get(pkg.path);
+        // Packages under module
+        const pkgChildren = await this.getChildren(moduleItem);
+        const packages = pkgChildren.filter((i): i is PackageItem => i instanceof PackageItem);
+        const packageItem = packages.find(p => p.filePath === packagePath);
         if (!packageItem) {
-            packageItem = new PackageItem(this.getPackageLabel(pkg), pkg.path, moduleItem);
-            this.packageItems.set(pkg.path, packageItem);
-        } else {
-            (packageItem as any).parent = moduleItem;
+            throw new Error(`Go package not found in module for path: ${packagePath}`);
         }
 
-        const key = `${pkg.path}::${benchmarkName}`;
-        let benchmarkItem = this.benchmarkItems.get(key);
+        // Benchmarks under package
+        const benchChildren = await this.getChildren(packageItem);
+        const benchmarks = benchChildren.filter((i): i is BenchmarkItem => i instanceof BenchmarkItem);
+        const benchmarkItem = benchmarks.find(b => String(b.label) === benchmarkName);
         if (!benchmarkItem) {
-            benchmarkItem = new BenchmarkItem(benchmarkName, pkg.path, packageItem);
-            this.benchmarkItems.set(key, benchmarkItem);
-        } else {
-            (benchmarkItem as any).parent = packageItem;
+            throw new Error(`Benchmark not found: ${benchmarkName} in package ${packageItem.filePath}`);
         }
 
-        return benchmarkItem;
+        return { moduleItem, packageItem, benchmarkItem };
     }
 }

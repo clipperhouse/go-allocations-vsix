@@ -84,24 +84,24 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Command invoked by CodeLens in editor to run a specific benchmark
     const runBenchmarkFromEditor = vscode.commands.registerCommand('goAllocations.runBenchmarkFromEditor', async (args: { packageDir: string; benchmarkName: string }) => {
-        if (!args || !args.packageDir || !args.benchmarkName) {
-            return;
+        try {
+            if (!args || !args.packageDir || !args.benchmarkName) {
+                throw new Error('Missing benchmark information from editor.');
+            }
+
+            const { moduleItem, packageItem, benchmarkItem } = await provider.findBenchmarkChainOrThrow(args.packageDir, args.benchmarkName);
+
+            // Focus the Go Allocations Explorer view
+            await vscode.commands.executeCommand('workbench.view.extension.goAllocations');
+
+            // Reveal in order so the view can materialize the hierarchy
+            await treeView.reveal(moduleItem, { expand: true });
+            await treeView.reveal(packageItem, { expand: true });
+            await treeView.reveal(benchmarkItem, { expand: true });
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            vscode.window.showErrorMessage(`Go Allocations: ${msg}`);
         }
-
-        // Ensure discovery is ready so we can reveal the correct tree item
-        await provider.ensurePackagesLoaded();
-
-        const item = provider.findBenchmarkItem(args.packageDir, args.benchmarkName);
-        if (!item) {
-            vscode.window.showWarningMessage(`Benchmark ${args.benchmarkName} not found in Go Allocations Explorer.`);
-            return;
-        }
-
-        // Focus the Go Allocations Explorer view
-        await vscode.commands.executeCommand('workbench.view.extension.goAllocations');
-
-        // Trigger the run by revealing the item (which loads children)
-        await treeView.reveal(item, { expand: true });
     });
     context.subscriptions.push(runBenchmarkFromEditor);
 }
