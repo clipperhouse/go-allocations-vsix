@@ -46,21 +46,22 @@ export class PackageItem extends vscode.TreeItem {
 }
 
 export class BenchmarkItem extends vscode.TreeItem {
-    public readonly filePath: string;
     public readonly contextValue: 'benchmarkFunction' = 'benchmarkFunction';
     public readonly parent: PackageItem;
 
     constructor(
         label: string,
-        filePath: string,
         parent: PackageItem
     ) {
         super(label, vscode.TreeItemCollapsibleState.Collapsed);
-        this.filePath = filePath;
         this.parent = parent;
 
         this.iconPath = new vscode.ThemeIcon('symbol-function');
         this.tooltip = `Click to run ${label} and discover allocations`;
+    }
+
+    get filePath(): string {
+        return this.parent.filePath;
     }
 }
 
@@ -454,6 +455,11 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         return packages;
     }
 
+    private getBenchmarkKey(packagePath: string, benchmarkName: string): string {
+        const p = path.resolve(packagePath);
+        return `${p}:${benchmarkName}`;
+    }
+
     private getBenchmarks(packageItem: PackageItem): BenchmarkItem[] {
         // Find the package in the modules structure
         const module = this.modules.find(m => m.packages.some(p => p.path === packageItem.filePath));
@@ -471,10 +477,9 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         for (const benchmark of pkg.benchmarks) {
             const item = new BenchmarkItem(
                 benchmark,
-                packageItem.filePath,
                 packageItem
             );
-            const key = `${packageItem.filePath}:${benchmark}`;
+            const key = this.getBenchmarkKey(packageItem.filePath, benchmark);
             this.benchmarkItems.set(key, item);
             benchmarks.push(item);
         }
@@ -803,7 +808,7 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
 
     async findBenchmark(packagePath: string, benchmarkName: string): Promise<BenchmarkItem> {
         await this.ensureLoaded();
-        const key = `${packagePath}:${benchmarkName}`;
+        const key = this.getBenchmarkKey(packagePath, benchmarkName);
         const benchmarkItem = this.benchmarkItems.get(key);
         if (!benchmarkItem) {
             throw new Error(`Benchmark not found: ${benchmarkName} in package ${packagePath}`);

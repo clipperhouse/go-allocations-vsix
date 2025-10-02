@@ -127,7 +127,7 @@ class GoBenchmarkCodeLensProvider implements vscode.CodeLensProvider {
                 // The best we can do is use the same range as the Go extension and hope VS Code's merge
                 // algorithm places ours in a reasonable position.
                 const range = new vscode.Range(i, 0, i, line.text.length);
-                const packageDir = this.getPackageDir(document.uri);
+                const packageDir = path.dirname(document.uri.fsPath);
                 const cmd: vscode.Command = {
                     command: 'goAllocations.runBenchmarkFromEditor',
                     title: 'find allocations',
@@ -142,10 +142,5 @@ class GoBenchmarkCodeLensProvider implements vscode.CodeLensProvider {
     // Resolve not needed since we provide command inline
     resolveCodeLens?(codeLens: vscode.CodeLens, _token: vscode.CancellationToken): vscode.ProviderResult<vscode.CodeLens> {
         return codeLens;
-    }
-
-    private getPackageDir(uri: vscode.Uri): string {
-        // For Go, the package dir is the file's folder
-        return path.dirname(uri.fsPath);
     }
 }
