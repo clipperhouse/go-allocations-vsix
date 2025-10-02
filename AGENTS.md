@@ -24,3 +24,6 @@ indicates a bug, or a violation of an invariant. Avoid things called
 "ensure", that's a code smell.
 
 Use types to help detect errors.
+
+When I ask you to "review this PR", use the gh CLI tool to get information
+about the pull request.
