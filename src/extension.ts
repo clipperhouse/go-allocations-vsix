@@ -94,9 +94,8 @@ export async function activate(context: vscode.ExtensionContext) {
             await vscode.commands.executeCommand('workbench.view.extension.goAllocations');
 
             const benchmarkItem = await provider.findBenchmark(args.packageDir, args.benchmarkName);
-
-            // Reveal the benchmark; TreeView will resolve parents via getParent
-            await treeView.reveal(benchmarkItem, { expand: true });
+            provider.clearBenchmarkRunState(benchmarkItem);
+            await treeView.reveal(benchmarkItem, { expand: true, select: true });
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             vscode.window.showErrorMessage(`Go Allocations: ${msg}`);
@@ -108,7 +107,7 @@ export async function activate(context: vscode.ExtensionContext) {
 export function deactivate() { }
 
 class GoBenchmarkCodeLensProvider implements vscode.CodeLensProvider {
-    private readonly benchRegex = /^\s*func\s+(Benchmark[\w\d_]*)\s*\(b\s*\*testing\.B\)/;
+    private readonly benchRegex = /^\s*func\s+(Benchmark[A-Za-z0-9_]+)\s*\(b\s*\*testing\.B\)/;
     private onDidChangeCodeLensesEmitter = new vscode.EventEmitter<void>();
     public readonly onDidChangeCodeLenses: vscode.Event<void> = this.onDidChangeCodeLensesEmitter.event;
 

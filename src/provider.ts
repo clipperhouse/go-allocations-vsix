@@ -135,6 +135,7 @@ export class Provider implements vscode.TreeDataProvider<Item> {
 
     // Cache for discovered modules and their packages
     private modules: ModuleCache[] = [];
+    private benchmarkItems: Map<string, BenchmarkItem> = new Map();
     private loadingPromise: Promise<void> | null = null;
 
     // No secondary caches for TreeItems; use stable ids and ModuleCache as source of truth
@@ -183,6 +184,7 @@ export class Provider implements vscode.TreeDataProvider<Item> {
 
         // Reset all cache state
         this.modules = [];
+        this.benchmarkItems = new Map();
         this.loadingPromise = null;
 
         // Fire tree data change event to refresh the view
@@ -472,6 +474,8 @@ export class Provider implements vscode.TreeDataProvider<Item> {
                 packageItem.filePath,
                 packageItem
             );
+            const key = `${packageItem.filePath}:${benchmark}`;
+            this.benchmarkItems.set(key, item);
             benchmarks.push(item);
         }
 
@@ -799,37 +803,11 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
 
     async findBenchmark(packagePath: string, benchmarkName: string): Promise<BenchmarkItem> {
         await this.ensureLoaded();
-
-        // Root: modules
-        const rootChildren = await this.getChildren();
-        const moduleItem = rootChildren
-            .filter((m): m is ModuleItem => m instanceof ModuleItem)
-            .find(m => packagePath.startsWith(m.modulePath));
-
-        if (!moduleItem) {
-            throw new Error(`No Go module found containing path: ${packagePath}`);
-        }
-
-        // Packages under module
-        const moduleChildren = await this.getChildren(moduleItem);
-        const packageItem = moduleChildren
-            .filter((p): p is PackageItem => p instanceof PackageItem)
-            .find(p => p.filePath === packagePath);
-
-        if (!packageItem) {
-            throw new Error(`Go package not found in module for path: ${packagePath}`);
-        }
-
-        // Benchmarks under package
-        const packageChildren = await this.getChildren(packageItem);
-        const benchmarkItem = packageChildren
-            .filter((b): b is BenchmarkItem => b instanceof BenchmarkItem)
-            .find(b => String(b.label) === benchmarkName);
-
+        const key = `${packagePath}:${benchmarkName}`;
+        const benchmarkItem = this.benchmarkItems.get(key);
         if (!benchmarkItem) {
-            throw new Error(`Benchmark not found: ${benchmarkName} in package ${packageItem.filePath}`);
+            throw new Error(`Benchmark not found: ${benchmarkName} in package ${packagePath}`);
         }
-
         return benchmarkItem;
     }
 
