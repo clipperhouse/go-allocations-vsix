@@ -19,16 +19,10 @@ export async function activate(context: vscode.ExtensionContext) {
         }
 
         const selectedItem = e.selection[0];
-        if (!(selectedItem instanceof AllocationItem)) {
+        if (selectedItem instanceof AllocationItem) {
+            await selectedItem.navigateTo();
             return;
         }
-
-        // Open file at line
-        const document = await vscode.workspace.openTextDocument(vscode.Uri.file(selectedItem.filePath));
-        const editor = await vscode.window.showTextDocument(document);
-        const position = new vscode.Position(selectedItem.lineNumber - 1, 0); // Convert to 0-based line number
-        editor.selection = new vscode.Selection(position, position);
-        editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
     });
 
     // Register commands

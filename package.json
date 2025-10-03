@@ -86,7 +86,7 @@
             },
             {
                 "command": "goAllocations.runSingleBenchmark",
-                "title": "Run benchmark",
+                "title": "Run benchmark to discover allocations",
                 "icon": "$(play)"
             },
             {

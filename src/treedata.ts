@@ -377,6 +377,19 @@ export class AllocationItem extends vscode.TreeItem {
     private getImageUri(imageName: string): vscode.Uri {
         return vscode.Uri.joinPath(vscode.Uri.file(__dirname), '..', 'images', imageName);
     }
+
+    async navigateTo(): Promise<void> {
+        await navigateTo(this.filePath, this.lineNumber);
+    }
+}
+
+const navigateTo = async (filePath: string, lineNumber: number): Promise<void> => {
+    // Open file at line
+    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath));
+    const editor = await vscode.window.showTextDocument(document);
+    const position = new vscode.Position(lineNumber - 1, 0); // Convert to 0-based line number
+    editor.selection = new vscode.Selection(position, position);
+    editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
 }
 
 export interface AllocationData {
