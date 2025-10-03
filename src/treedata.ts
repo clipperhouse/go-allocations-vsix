@@ -691,8 +691,8 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
                         if (signal.aborted) {
                             return;
                         }
-                        // Because TreeView.reveal is Thenable which doesn't have .catch,
-                        // we need to wrap in Promise.resolve.
+
+                        this.clearBenchmarkRunState(benchmarkItem);
                         const r = treeView.reveal(benchmarkItem, { expand: true });
                         await Promise.resolve(r);
                     } catch (error: any) {
