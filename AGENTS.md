@@ -26,4 +26,6 @@ indicates a bug, or a violation of an invariant. Avoid things called
 Use types to help detect errors.
 
 When I ask you to "review this PR", use the gh CLI tool to get information
-about the pull request.
+about the pull request. When I ask you to publish your review summary to
+the PR, use the gh CLI tool to do so, and clearly identify who you are
+(Cursor) as well as what LLM model you are using.
