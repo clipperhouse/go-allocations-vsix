@@ -696,64 +696,36 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
         const promises: Promise<void>[] = [];
 
         try {
-            if (signal.aborted) {
-                return;
-            }
-
-            const rootItems = (await this.getChildren())
-                .filter(item => item instanceof ModuleItem);
-
-            for (const rootItem of rootItems) {
+            for (const benchmarkItem of this.benchmarkItems.values()) {
                 if (signal.aborted) {
                     return;
                 }
 
-                const packageItems = (await this.getChildren(rootItem))
-                    .filter(item => item instanceof PackageItem);
-
-                for (const packageItem of packageItems) {
-                    if (signal.aborted) {
-                        return;
-                    }
-
-                    const benchmarkItems = (await this.getChildren(packageItem))
-                        .filter(item => item instanceof BenchmarkItem);
-
-                    for (const benchmarkItem of benchmarkItems) {
+                const p = (async () => {
+                    await sema.acquire();
+                    try {
                         if (signal.aborted) {
                             return;
                         }
-
-                        const p = (async () => {
-                            await sema.acquire();
-                            try {
-                                if (signal.aborted) {
-                                    return;
-                                }
-                                // Because TreeView.reveal is Thenable which doesn't have .catch,
-                                // we need to wrap in Promise.resolve.
-                                const r = treeView.reveal(benchmarkItem, { expand: true });
-                                await Promise.resolve(r);
-                            } catch (error: any) {
-                                if (signal.aborted) {
-                                    console.log('Benchmark cancelled:', benchmarkItem.label);
-                                } else {
-                                    console.error('Benchmark error:', error);
-                                }
-                            } finally {
-                                sema.release();
-                            }
-                        })();
-
-                        promises.push(p);
+                        // Because TreeView.reveal is Thenable which doesn't have .catch,
+                        // we need to wrap in Promise.resolve.
+                        const r = treeView.reveal(benchmarkItem, { expand: true });
+                        await Promise.resolve(r);
+                    } catch (error: any) {
+                        if (signal.aborted) {
+                            console.log('Benchmark cancelled:', benchmarkItem.label);
+                        } else {
+                            console.error('Benchmark error:', error);
+                        }
+                    } finally {
+                        sema.release();
                     }
-                }
+                })();
+
+                promises.push(p);
             }
 
-            // Wait for all benchmarks to complete
             await Promise.all(promises);
-
-            // Drain the semaphore to ensure all operations are complete
             await sema.drain();
         } catch (error) {
             if (signal.aborted) {
