@@ -741,8 +741,7 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
                         }
 
                         this.clearBenchmarkRunState(benchmarkItem);
-                        const r = treeView.reveal(benchmarkItem, { expand: true });
-                        await Promise.resolve(r);
+                        await treeView.reveal(benchmarkItem, { expand: true });
                     } catch (error: any) {
                         if (signal.aborted) {
                             console.log('Benchmark cancelled:', benchmarkItem.label);
