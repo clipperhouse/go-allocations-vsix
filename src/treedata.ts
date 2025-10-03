@@ -127,7 +127,7 @@ const routineRegex = /^ROUTINE\s*=+\s*(.+?)\s+in\s+(.+)$/;
 const lineRegex = /^\s*(\d+(?:\.\d+)?[KMGT]?B)?\s*(\d+(?:\.\d+)?[KMGT]?B)?\s*(\d+):\s*(.+)$/;
 
 export class BenchmarkItem extends vscode.TreeItem {
-    public readonly contextValue: 'benchmarkFunction' = 'benchmarkFunction';
+    public readonly contextValue: 'benchmarkItem' = 'benchmarkItem';
     public readonly parent: PackageItem;
     public readonly location: vscode.Location;
 

@@ -119,12 +119,12 @@
             "view/item/context": [
                 {
                     "command": "goAllocations.runSingleBenchmark",
-                    "when": "view == goAllocationsExplorer && viewItem == benchmarkFunction",
+                    "when": "view == goAllocationsExplorer && viewItem == benchmarkItem",
                     "group": "inline"
                 },
                 {
                     "command": "goAllocations.navigateToBenchmark",
-                    "when": "view == goAllocationsExplorer && viewItem == benchmarkFunction"
+                    "when": "view == goAllocationsExplorer && viewItem == benchmarkItem"
                 }
             ]
         }
