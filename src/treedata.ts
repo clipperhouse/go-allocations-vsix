@@ -397,7 +397,7 @@ const navigateTo = async (filePath: string, lineNumber: number): Promise<void> =
     editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
 }
 
-export interface AllocationData {
+interface AllocationData {
     flatBytes: string;
     cumulativeBytes: string;
     functionName: string;
@@ -477,6 +477,18 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
         // Fire tree data change event to refresh the view
         this._onDidChangeTreeData.fire();
     }
+
+    async handleSelection(e: vscode.TreeViewSelectionChangeEvent<Item>): Promise<void> {
+        if (e.selection.length === 0) {
+            return;
+        }
+
+        const selectedItem = e.selection[0];
+        if (selectedItem instanceof AllocationItem) {
+            await selectedItem.navigateTo();
+            return;
+        }
+    };
 
     getTreeItem(element: Item): vscode.TreeItem {
         return element;

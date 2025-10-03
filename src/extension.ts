@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { TreeDataProvider, Item, BenchmarkItem, AllocationItem } from './treedata';
+import { TreeDataProvider, Item, BenchmarkItem } from './treedata';
 import { CodeLensProvider } from './codelens';
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -14,15 +14,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Handle clicks on allocation lines
     treeView.onDidChangeSelection(async (e) => {
-        if (e.selection.length === 0) {
-            return;
-        }
-
-        const selectedItem = e.selection[0];
-        if (selectedItem instanceof AllocationItem) {
-            await selectedItem.navigateTo();
-            return;
-        }
+        await treeData.handleSelection(e);
     });
 
     // Register commands
