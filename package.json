@@ -90,7 +90,7 @@
         },
         "commands": [
             {
-                "command": "goAllocations.runAllBenchmarksSimple",
+                "command": "goAllocations.runAllBenchmarks",
                 "title": "Run all benchmarks and discover allocations",
                 "icon": "$(run-all)",
                 "when": "view == goAllocationsExplorer"
@@ -132,7 +132,7 @@
                     "group": "navigation"
                 },
                 {
-                    "command": "goAllocations.runAllBenchmarksSimple",
+                    "command": "goAllocations.runAllBenchmarks",
                     "when": "view == goAllocationsExplorer",
                     "group": "navigation"
                 },

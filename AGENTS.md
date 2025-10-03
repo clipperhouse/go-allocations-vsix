@@ -11,6 +11,8 @@ When I ask for a new feature, focus on the smallest, simplest version first. Onl
 implement the "happy path" to start. After that, suggest edge cases and error
 paths. Perhaps add comments indicating a TODO for handling those cases.
 
+## Data structures and integrity
+
 Avoid creating two sources of truth. There are two main data structures:
 
 - The module cache is the source of truth for the module structure.
@@ -19,13 +21,17 @@ Avoid creating two sources of truth. There are two main data structures:
 You might think of it as analogous to an MVC pattern. The model is the module
 cache, the view is the TreeView, and the controller is the provider.
 
+Use types to help detect errors.
+
 Prefer to throw an error when something unexpected happens. It probably
 indicates a bug, or a violation of an invariant. Avoid things called
 "ensure", that's a code smell.
 
-Use types to help detect errors.
+## Pull requests and code reviews
 
 When I ask you to "review this PR", use the gh CLI tool to get information
-about the pull request. When I ask you to publish your review summary to
-the PR, use the gh CLI tool to do so, and clearly identify who you are
-(Cursor) as well as what LLM model you are using.
+about the pull request, based on the current local git branch.
+
+When I ask you to publish your review summary to the PR, use the gh CLI tool
+to do so, and **clearly identify** who you are (Cursor), that this was an
+automated review, and what LLM model you are using.
