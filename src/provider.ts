@@ -46,21 +46,22 @@ export class PackageItem extends vscode.TreeItem {
 }
 
 export class BenchmarkItem extends vscode.TreeItem {
-    public readonly filePath: string;
     public readonly contextValue: 'benchmarkFunction' = 'benchmarkFunction';
     public readonly parent: PackageItem;
 
     constructor(
         label: string,
-        filePath: string,
         parent: PackageItem
     ) {
         super(label, vscode.TreeItemCollapsibleState.Collapsed);
-        this.filePath = filePath;
         this.parent = parent;
 
         this.iconPath = new vscode.ThemeIcon('symbol-function');
         this.tooltip = `Click to run ${label} and discover allocations`;
+    }
+
+    get filePath(): string {
+        return this.parent.filePath;
     }
 }
 
@@ -135,8 +136,10 @@ export class Provider implements vscode.TreeDataProvider<Item> {
 
     // Cache for discovered modules and their packages
     private modules: ModuleCache[] = [];
-    private packagesLoaded = false;
-    private discoveryInProgress = false;
+    private benchmarkItems: Map<string, BenchmarkItem> = new Map();
+    private loadingPromise: Promise<void> | null = null;
+
+    // No secondary caches for TreeItems; use stable ids and ModuleCache as source of truth
 
     constructor() { }
 
@@ -182,8 +185,8 @@ export class Provider implements vscode.TreeDataProvider<Item> {
 
         // Reset all cache state
         this.modules = [];
-        this.packagesLoaded = false;
-        this.discoveryInProgress = false;
+        this.benchmarkItems = new Map();
+        this.loadingPromise = null;
 
         // Fire tree data change event to refresh the view
         this._onDidChangeTreeData.fire();
@@ -228,13 +231,11 @@ export class Provider implements vscode.TreeDataProvider<Item> {
 
     async getChildren(element?: Item): Promise<Item[]> {
         if (!element) {
-            // If not loaded and not in progress, start loading
-            if (!this.discoveryInProgress && !this.packagesLoaded) {
-                this.discoveryInProgress = true;
-                // Start loading in the background - don't wait for it
-                this.loadPackages().catch(error => {
+            // If not loaded, start loading
+            if (!this.loadingPromise) {
+                // Start loading in the background and store the promise
+                this.loadingPromise = this.loadPackages().catch(error => {
                     console.error('Error loading packages:', error);
-                    this.discoveryInProgress = false;
                 });
             }
 
@@ -244,10 +245,7 @@ export class Provider implements vscode.TreeDataProvider<Item> {
             );
 
             // Return currently discovered modules immediately (even if loading is still in progress)
-            const moduleItems = this.modules.map(module => new ModuleItem(
-                module.name,
-                module.path
-            ));
+            const moduleItems = this.modules.map(module => new ModuleItem(module.name, module.path));
 
             return [instruction, ...moduleItems];
         }
@@ -272,8 +270,6 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         const signal = this.abortSignal();
 
         if (!vscode.workspace.workspaceFolders) {
-            this.packagesLoaded = true;
-            this.discoveryInProgress = false;
             this._onDidChangeTreeData.fire();
             return;
         }
@@ -330,8 +326,6 @@ export class Provider implements vscode.TreeDataProvider<Item> {
                 throw error;
             }
         } finally {
-            this.packagesLoaded = true;
-            this.discoveryInProgress = false;
             this._onDidChangeTreeData.fire();
         }
     }
@@ -461,6 +455,11 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         return packages;
     }
 
+    private getBenchmarkKey(packagePath: string, benchmarkName: string): string {
+        const p = path.resolve(packagePath);
+        return `${p}:${benchmarkName}`;
+    }
+
     private getBenchmarks(packageItem: PackageItem): BenchmarkItem[] {
         // Find the package in the modules structure
         const module = this.modules.find(m => m.packages.some(p => p.path === packageItem.filePath));
@@ -478,9 +477,10 @@ export class Provider implements vscode.TreeDataProvider<Item> {
         for (const benchmark of pkg.benchmarks) {
             const item = new BenchmarkItem(
                 benchmark,
-                packageItem.filePath,
                 packageItem
             );
+            const key = this.getBenchmarkKey(packageItem.filePath, benchmark);
+            this.benchmarkItems.set(key, item);
             benchmarks.push(item);
         }
 
@@ -804,5 +804,25 @@ ROUTINE ======================== github.com/clipperhouse/uax29/v2.alloc in /User
             console.error('Error running all benchmarks:', error);
             throw error;
         }
+    }
+
+    async findBenchmark(packagePath: string, benchmarkName: string): Promise<BenchmarkItem> {
+        await this.ensureLoaded();
+        const key = this.getBenchmarkKey(packagePath, benchmarkName);
+        const benchmarkItem = this.benchmarkItems.get(key);
+        if (!benchmarkItem) {
+            throw new Error(`Benchmark not found: ${benchmarkName} in package ${packagePath}`);
+        }
+        return benchmarkItem;
+    }
+
+    async ensureLoaded(): Promise<void> {
+        // Trigger loading if needed (getChildren will create loadingPromise if not started)
+        if (!this.loadingPromise) {
+            await this.getChildren();
+        }
+
+        // Await the loading promise (fast if already resolved)
+        await this.loadingPromise;
     }
 }
