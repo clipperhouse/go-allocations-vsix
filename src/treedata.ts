@@ -475,7 +475,7 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
             // If not loaded, start loading
             if (!this.loadingPromise) {
                 // Start loading in the background and store the promise
-                this.loadingPromise = this.loadPackages().catch(error => {
+                this.loadingPromise = this.loadModules().catch(error => {
                     console.error('Error loading packages:', error);
                 });
             }
@@ -506,7 +506,7 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
         return Promise.resolve([]);
     }
 
-    private async loadPackages(): Promise<void> {
+    private async loadModules(): Promise<void> {
         const signal = this.abortSignal();
 
         if (!vscode.workspace.workspaceFolders) {
@@ -549,7 +549,7 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
                 }
 
                 try {
-                    await this.loadPackagesFromWorkspace(workspaceFolder, allBenchmarkSymbols);
+                    await this.loadModulesInWorkspace(workspaceFolder, allBenchmarkSymbols);
                 } catch (error) {
                     if (signal.aborted) {
                         throw error;
@@ -571,10 +571,7 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
     }
 
     private readonly benchmarkNameRegex = /^Benchmark[A-Z_]/;
-    /**
-     * Load packages and benchmarks using workspace symbol search
-     */
-    private async loadPackagesFromWorkspace(
+    private async loadModulesInWorkspace(
         workspaceFolder: vscode.WorkspaceFolder,
         allBenchmarkSymbols: Array<{ name: string; fileUri: vscode.Uri }>
     ): Promise<void> {
@@ -658,9 +655,6 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
         }
     }
 
-    /**
-     * Helper method to determine package name from directory path
-     */
     private async getPackageNameFromPath(packageDir: string, rootPath: string): Promise<string> {
         const relativePath = path.relative(rootPath, packageDir);
         if (relativePath === '') {
