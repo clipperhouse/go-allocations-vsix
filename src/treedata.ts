@@ -27,7 +27,7 @@ export class InformationItem extends vscode.TreeItem {
     }
 }
 
-const getPackageLabel = (pkg: { name: string; path: string; benchmarks: string[] }): string => {
+const getPackageLabel = (pkg: { name: string; path: string; benchmarkNames: string[] }): string => {
     // Get the workspace folder that contains this package
     const workspaceFolder = vscode.workspace.workspaceFolders?.find(folder =>
         pkg.path.startsWith(folder.uri.fsPath)
@@ -81,11 +81,6 @@ export class ModuleItem extends vscode.TreeItem {
     }
 }
 
-const getBenchmarkKey = (packagePath: string, benchmarkName: string): string => {
-    const p = path.resolve(packagePath);
-    return `${p}:${benchmarkName}`;
-}
-
 export class PackageItem extends vscode.TreeItem {
     public readonly filePath: string;
     public readonly contextValue: 'package' = 'package';
@@ -103,7 +98,7 @@ export class PackageItem extends vscode.TreeItem {
         this.tooltip = `Go package: ${label}\nPath: ${filePath}`;
     }
 
-    getChildren(modules: ModuleCache[], benchmarkItems: BenchmarkItemCache): BenchmarkItem[] {
+    getChildren(modules: ModuleCache[], benchmarkItemCache: BenchmarkItemCache): BenchmarkItem[] {
         // Find the package in the modules structure
         const module = modules.find(m => m.packages.some(p => p.path === this.filePath));
         if (!module) {
@@ -115,19 +110,15 @@ export class PackageItem extends vscode.TreeItem {
             throw new Error('Package not found in cache');
         }
 
-        const benchmarks: BenchmarkItem[] = [];
+        const benchmarkItems: BenchmarkItem[] = [];
 
-        for (const benchmark of pkg.benchmarks) {
-            const item = new BenchmarkItem(
-                benchmark,
-                this
-            );
-            const key = getBenchmarkKey(this.filePath, benchmark);
-            benchmarkItems.set(key, item);
-            benchmarks.push(item);
+        for (const name of pkg.benchmarkNames) {
+            const item = new BenchmarkItem(name, this);
+            benchmarkItemCache.add(item);
+            benchmarkItems.push(item);
         }
 
-        return benchmarks;
+        return benchmarkItems;
     }
 }
 
@@ -394,12 +385,27 @@ export interface AllocationData {
     functionName: string;
 }
 
-class BenchmarkItemCache extends Map<string, BenchmarkItem> { }
+class BenchmarkItemCache extends Map<string, BenchmarkItem> {
+    add(item: BenchmarkItem): void {
+        const key = this.getKey(item.parent.filePath, item.label as string);
+        this.set(key, item);
+    }
+
+    find(packagePath: string, benchmarkName: string): BenchmarkItem | undefined {
+        const key = this.getKey(packagePath, benchmarkName);
+        return this.get(key);
+    }
+
+    private getKey(packagePath: string, benchmarkName: string): string {
+        const p = path.resolve(packagePath);
+        return `${p}::${benchmarkName}`;
+    }
+}
 
 interface ModuleCache {
     name: string;
     path: string;
-    packages: { name: string; path: string; benchmarks: string[] }[]
+    packages: { name: string; path: string; benchmarkNames: string[] }[]
 }
 
 export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
@@ -436,7 +442,7 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
 
         // Reset all cache state
         this.modules = [];
-        this.benchmarkItems = new Map();
+        this.benchmarkItems = new BenchmarkItemCache();
         this.loadingPromise = null;
 
         // Fire tree data change event to refresh the view
@@ -615,7 +621,7 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
             console.log(`Found ${benchmarkSymbols.length} benchmark functions in ${workspaceFolder.name}`);
 
             // Group benchmarks by package directory
-            const packageMap = new Map<string, { name: string; path: string; benchmarks: string[] }>();
+            const packageMap = new Map<string, { name: string; path: string; benchmarkNames: string[] }>();
 
             for (const symbol of benchmarkSymbols) {
                 if (signal.aborted) {
@@ -629,18 +635,18 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
                     packageMap.set(packageDir, {
                         name: packageName,
                         path: packageDir,
-                        benchmarks: []
+                        benchmarkNames: []
                     });
                 }
 
-                packageMap.get(packageDir)!.benchmarks.push(symbol.name);
+                packageMap.get(packageDir)!.benchmarkNames.push(symbol.name);
             }
 
             // Add packages with benchmarks to the module
             for (const pkg of packageMap.values()) {
-                if (pkg.benchmarks.length > 0) {
+                if (pkg.benchmarkNames.length > 0) {
                     module.packages.push(pkg);
-                    console.log(`Added package ${pkg.name} with ${pkg.benchmarks.length} benchmarks`);
+                    console.log(`Added package ${pkg.name} with ${pkg.benchmarkNames.length} benchmarks`);
 
                     // Fire update immediately for responsive UI
                     this._onDidChangeTreeData.fire();
@@ -724,8 +730,7 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
 
     async findBenchmark(packagePath: string, benchmarkName: string): Promise<BenchmarkItem> {
         await this.ensureLoaded();
-        const key = getBenchmarkKey(packagePath, benchmarkName);
-        const benchmarkItem = this.benchmarkItems.get(key);
+        const benchmarkItem = this.benchmarkItems.find(packagePath, benchmarkName);
         if (!benchmarkItem) {
             throw new Error(`Benchmark not found: ${benchmarkName} in package ${packagePath}`);
         }
