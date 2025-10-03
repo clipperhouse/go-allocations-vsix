@@ -138,9 +138,4 @@ class GoBenchmarkCodeLensProvider implements vscode.CodeLensProvider {
         }
         return lenses;
     }
-
-    // Resolve not needed since we provide command inline
-    resolveCodeLens?(codeLens: vscode.CodeLens, _token: vscode.CancellationToken): vscode.ProviderResult<vscode.CodeLens> {
-        return codeLens;
-    }
 }
