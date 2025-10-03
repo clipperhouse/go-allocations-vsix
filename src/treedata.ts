@@ -27,7 +27,7 @@ export class InformationItem extends vscode.TreeItem {
     }
 }
 
-const getPackageLabel = (pkg: { name: string; path: string; benchmarkNames: string[] }): string => {
+const getPackageLabel = (pkg: PackageCache): string => {
     // Get the workspace folder that contains this package
     const workspaceFolder = vscode.workspace.workspaceFolders?.find(folder =>
         pkg.path.startsWith(folder.uri.fsPath)
@@ -402,10 +402,16 @@ class BenchmarkItemCache extends Map<string, BenchmarkItem> {
     }
 }
 
+interface PackageCache {
+    name: string;
+    path: string;
+    benchmarkNames: string[];
+}
+
 interface ModuleCache {
     name: string;
     path: string;
-    packages: { name: string; path: string; benchmarkNames: string[] }[]
+    packages: PackageCache[];
 }
 
 export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
@@ -621,7 +627,7 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
             console.log(`Found ${benchmarkSymbols.length} benchmark functions in ${workspaceFolder.name}`);
 
             // Group benchmarks by package directory
-            const packageMap = new Map<string, { name: string; path: string; benchmarkNames: string[] }>();
+            const packageMap = new Map<string, PackageCache>();
 
             for (const symbol of benchmarkSymbols) {
                 if (signal.aborted) {
