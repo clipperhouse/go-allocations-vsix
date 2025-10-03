@@ -673,7 +673,7 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
      * Discovers all benchmarks, and runs them with semaphore control.
      * Relies on TreeView.reveal to trigger getChildren automatically.
      */
-    async runAllBenchmarksSimple(treeView: vscode.TreeView<Item>): Promise<void> {
+    async runAllBenchmarks(treeView: vscode.TreeView<Item>): Promise<void> {
         const signal = this.abortSignal();
 
         const sema = new Sema(2);

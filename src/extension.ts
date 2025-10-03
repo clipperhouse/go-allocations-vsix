@@ -32,10 +32,10 @@ export async function activate(context: vscode.ExtensionContext) {
     });
 
     // Register commands
-    const runAllBenchmarksSimple = vscode.commands.registerCommand('goAllocations.runAllBenchmarksSimple',
+    const runAllBenchmarks = vscode.commands.registerCommand('goAllocations.runAllBenchmarks',
         async () => {
             try {
-                await treeData.runAllBenchmarksSimple(treeView);
+                await treeData.runAllBenchmarks(treeView);
             } catch (error) {
                 if (treeData.abortSignal().aborted) {
                     vscode.window.showInformationMessage('Operation(s) cancelled');
@@ -45,7 +45,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 }
             }
         });
-    context.subscriptions.push(runAllBenchmarksSimple);
+    context.subscriptions.push(runAllBenchmarks);
 
     const stopAllBenchmarks = vscode.commands.registerCommand('goAllocations.stopAllBenchmarks',
         () => {
