@@ -42,6 +42,11 @@ export class ModuleItem extends vscode.TreeItem {
     }
 }
 
+const getBenchmarkKey = (packagePath: string, benchmarkName: string): string => {
+    const p = path.resolve(packagePath);
+    return `${p}:${benchmarkName}`;
+}
+
 export class PackageItem extends vscode.TreeItem {
     public readonly filePath: string;
     public readonly contextValue: 'package' = 'package';
@@ -57,6 +62,33 @@ export class PackageItem extends vscode.TreeItem {
         this.parent = parent;
         this.iconPath = new vscode.ThemeIcon('package');
         this.tooltip = `Go package: ${label}\nPath: ${filePath}`;
+    }
+
+    getChildren(modules: ModuleCache[], benchmarkItems: Map<string, BenchmarkItem>): BenchmarkItem[] {
+        // Find the package in the modules structure
+        const module = modules.find(m => m.packages.some(p => p.path === this.filePath));
+        if (!module) {
+            throw new Error('Module not found in cache');
+        }
+
+        const pkg = module.packages.find(p => p.path === this.filePath);
+        if (!pkg) {
+            throw new Error('Package not found in cache');
+        }
+
+        const benchmarks: BenchmarkItem[] = [];
+
+        for (const benchmark of pkg.benchmarks) {
+            const item = new BenchmarkItem(
+                benchmark,
+                this
+            );
+            const key = getBenchmarkKey(this.filePath, benchmark);
+            benchmarkItems.set(key, item);
+            benchmarks.push(item);
+        }
+
+        return benchmarks;
     }
 }
 
@@ -281,7 +313,6 @@ export class BenchmarkItem extends vscode.TreeItem {
 
 export type BenchmarkChildItem = InformationItem | AllocationItem;
 
-
 export class AllocationItem extends vscode.TreeItem {
     public readonly filePath: string;
     public readonly lineNumber: number;
@@ -455,7 +486,7 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
         }
 
         if (element instanceof PackageItem) {
-            return this.getBenchmarks(element);
+            return element.getChildren(this.modules, this.benchmarkItems);
         }
 
         if (element instanceof BenchmarkItem) {
@@ -654,38 +685,6 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
         return packages;
     }
 
-    private getBenchmarkKey(packagePath: string, benchmarkName: string): string {
-        const p = path.resolve(packagePath);
-        return `${p}:${benchmarkName}`;
-    }
-
-    private getBenchmarks(packageItem: PackageItem): BenchmarkItem[] {
-        // Find the package in the modules structure
-        const module = this.modules.find(m => m.packages.some(p => p.path === packageItem.filePath));
-        if (!module) {
-            throw new Error('Module not found in cache');
-        }
-
-        const pkg = module.packages.find(p => p.path === packageItem.filePath);
-        if (!pkg) {
-            throw new Error('Package not found in cache');
-        }
-
-        const benchmarks: BenchmarkItem[] = [];
-
-        for (const benchmark of pkg.benchmarks) {
-            const item = new BenchmarkItem(
-                benchmark,
-                packageItem
-            );
-            const key = this.getBenchmarkKey(packageItem.filePath, benchmark);
-            this.benchmarkItems.set(key, item);
-            benchmarks.push(item);
-        }
-
-        return benchmarks;
-    }
-
     /**
      * Discovers all benchmarks, and runs them with semaphore control.
      * Relies on TreeView.reveal to trigger getChildren automatically.
@@ -768,7 +767,7 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
 
     async findBenchmark(packagePath: string, benchmarkName: string): Promise<BenchmarkItem> {
         await this.ensureLoaded();
-        const key = this.getBenchmarkKey(packagePath, benchmarkName);
+        const key = getBenchmarkKey(packagePath, benchmarkName);
         const benchmarkItem = this.benchmarkItems.get(key);
         if (!benchmarkItem) {
             throw new Error(`Benchmark not found: ${benchmarkName} in package ${packagePath}`);
