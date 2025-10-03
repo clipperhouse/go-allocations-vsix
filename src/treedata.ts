@@ -130,7 +130,7 @@ interface ModuleCache {
     packages: { name: string; path: string; benchmarks: string[] }[]
 }
 
-export class Provider implements vscode.TreeDataProvider<Item> {
+export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
     public _onDidChangeTreeData: vscode.EventEmitter<Item | undefined | null | void> = new vscode.EventEmitter<Item | undefined | null | void>();
     readonly onDidChangeTreeData: vscode.Event<Item | undefined | null | void> = this._onDidChangeTreeData.event;
 
