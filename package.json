@@ -50,26 +50,6 @@
     ],
     "main": "./out/extension.js",
     "contributes": {
-        "configuration": {
-            "title": "Go Allocations Explorer",
-            "properties": {
-                "goAllocations.benchmarkTimeout": {
-                    "type": "number",
-                    "default": 300,
-                    "description": "Timeout in seconds for running benchmarks"
-                },
-                "goAllocations.maxConcurrency": {
-                    "type": "number",
-                    "default": 4,
-                    "description": "Maximum number of benchmarks to run concurrently"
-                },
-                "goAllocations.autoRunOnOpen": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Automatically run benchmarks when opening a Go workspace"
-                }
-            }
-        },
         "viewsContainers": {
             "activitybar": [
                 {
@@ -92,36 +72,26 @@
             {
                 "command": "goAllocations.runAllBenchmarks",
                 "title": "Run all benchmarks and discover allocations",
-                "icon": "$(run-all)",
-                "when": "view == goAllocationsExplorer"
+                "icon": "$(run-all)"
             },
             {
                 "command": "goAllocations.stopAllBenchmarks",
                 "title": "Stop all benchmarks",
-                "icon": "$(debug-stop)",
-                "when": "view == goAllocationsExplorer"
+                "icon": "$(debug-stop)"
             },
             {
                 "command": "goAllocations.refresh",
                 "title": "Refresh",
-                "icon": "$(refresh)",
-                "when": "view == goAllocationsExplorer"
+                "icon": "$(refresh)"
             },
             {
                 "command": "goAllocations.runSingleBenchmark",
                 "title": "Run benchmark",
-                "icon": "$(play)",
-                "when": "view == goAllocationsExplorer && viewItem == benchmarkFunction"
-            },
-            {
-                "command": "goAllocations.test",
-                "title": "Test Extension",
-                "when": "true"
+                "icon": "$(play)"
             },
             {
                 "command": "goAllocations.runBenchmarkFromEditor",
-                "title": "Go Allocations: Run Benchmark from Editor",
-                "category": "Go Allocations"
+                "title": "Run Benchmark from Editor"
             }
         ],
         "menus": {
