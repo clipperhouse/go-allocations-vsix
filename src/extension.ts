@@ -93,6 +93,15 @@ export async function activate(context: vscode.ExtensionContext) {
         }
     });
     context.subscriptions.push(runBenchmarkFromEditor);
+
+    const navigateToBenchmark = vscode.commands.registerCommand('goAllocations.navigateToBenchmark', async (benchmarkItem: BenchmarkItem) => {
+        try {
+            await benchmarkItem.navigateTo();
+        } catch (err) {
+            vscode.window.showErrorMessage(`${err}`);
+        }
+    });
+    context.subscriptions.push(navigateToBenchmark);
 }
 
 export function deactivate() { }

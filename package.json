@@ -92,6 +92,10 @@
             {
                 "command": "goAllocations.runBenchmarkFromEditor",
                 "title": "Run Benchmark from Editor"
+            },
+            {
+                "command": "goAllocations.navigateToBenchmark",
+                "title": "Navigate to Benchmark"
             }
         ],
         "menus": {
@@ -117,6 +121,10 @@
                     "command": "goAllocations.runSingleBenchmark",
                     "when": "view == goAllocationsExplorer && viewItem == benchmarkFunction",
                     "group": "inline"
+                },
+                {
+                    "command": "goAllocations.navigateToBenchmark",
+                    "when": "view == goAllocationsExplorer && viewItem == benchmarkFunction"
                 }
             ]
         }

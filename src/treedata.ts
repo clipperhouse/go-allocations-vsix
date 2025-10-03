@@ -113,7 +113,7 @@ export class PackageItem extends vscode.TreeItem {
         const benchmarkItems: BenchmarkItem[] = [];
 
         for (const benchmark of pkg.benchmarks) {
-            const item = new BenchmarkItem(benchmark.name, this);
+            const item = new BenchmarkItem(benchmark, this);
             benchmarkItemCache.add(item);
             benchmarkItems.push(item);
         }
@@ -129,25 +129,26 @@ const lineRegex = /^\s*(\d+(?:\.\d+)?[KMGT]?B)?\s*(\d+(?:\.\d+)?[KMGT]?B)?\s*(\d
 export class BenchmarkItem extends vscode.TreeItem {
     public readonly contextValue: 'benchmarkFunction' = 'benchmarkFunction';
     public readonly parent: PackageItem;
-    public readonly lineNumber: number = 1;
+    public readonly location: vscode.Location;
 
     constructor(
-        label: string,
-        parent: PackageItem
+        benchmark: BenchmarkCache,
+        parent: PackageItem,
     ) {
-        super(label, vscode.TreeItemCollapsibleState.Collapsed);
+        super(benchmark.name, vscode.TreeItemCollapsibleState.Collapsed);
+        this.location = benchmark.location;
         this.parent = parent;
 
         this.iconPath = new vscode.ThemeIcon('symbol-function');
-        this.tooltip = `Click to run ${label} and discover allocations`;
+        this.tooltip = `Click to run ${benchmark.name} and discover allocations`;
     }
 
-    get filePath(): string {
+    get folderPath(): string {
         return this.parent.filePath;
     }
 
     async getChildren(signal: AbortSignal): Promise<BenchmarkChildItem[]> {
-        if (!this.filePath) {
+        if (!this.folderPath) {
             return [];
         }
 
@@ -171,7 +172,7 @@ export class BenchmarkItem extends vscode.TreeItem {
                 const { stdout, stderr } = await execAsync(
                     cmd,
                     {
-                        cwd: this.filePath,
+                        cwd: this.folderPath,
                         signal: signal
                     }
                 );
@@ -229,7 +230,7 @@ export class BenchmarkItem extends vscode.TreeItem {
                 const args = ['tool', 'pprof', `-list=${moduleName}`, memprofilePath];
 
                 const child = spawn(cmd, args, {
-                    cwd: this.filePath,
+                    cwd: this.folderPath,
                     signal,
                     stdio: ['ignore', 'pipe', 'pipe']
                 });
@@ -340,6 +341,10 @@ export class BenchmarkItem extends vscode.TreeItem {
         const firstDot = afterSlash.indexOf('.');
         return firstDot >= 0 ? afterSlash.slice(firstDot + 1) : afterSlash;
     }
+
+    async navigateTo(): Promise<void> {
+        await navigateTo(this.location.uri.fsPath, this.location.range.start.line + 1);
+    }
 }
 
 export type BenchmarkChildItem = InformationItem | AllocationItem;
@@ -385,7 +390,6 @@ export class AllocationItem extends vscode.TreeItem {
 }
 
 const navigateTo = async (filePath: string, lineNumber: number): Promise<void> => {
-    // Open file at line
     const document = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath));
     const editor = await vscode.window.showTextDocument(document);
     const position = new vscode.Position(lineNumber - 1, 0); // Convert to 0-based line number
