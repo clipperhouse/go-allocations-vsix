@@ -27,7 +27,6 @@ export class InformationItem extends vscode.TreeItem {
     }
 }
 
-
 const getPackageLabel = (pkg: { name: string; path: string; benchmarks: string[] }): string => {
     // Get the workspace folder that contains this package
     const workspaceFolder = vscode.workspace.workspaceFolders?.find(folder =>
@@ -104,7 +103,7 @@ export class PackageItem extends vscode.TreeItem {
         this.tooltip = `Go package: ${label}\nPath: ${filePath}`;
     }
 
-    getChildren(modules: ModuleCache[], benchmarkItems: Map<string, BenchmarkItem>): BenchmarkItem[] {
+    getChildren(modules: ModuleCache[], benchmarkItems: BenchmarkItemCache): BenchmarkItem[] {
         // Find the package in the modules structure
         const module = modules.find(m => m.packages.some(p => p.path === this.filePath));
         if (!module) {
@@ -395,6 +394,8 @@ export interface AllocationData {
     functionName: string;
 }
 
+class BenchmarkItemCache extends Map<string, BenchmarkItem> { }
+
 interface ModuleCache {
     name: string;
     path: string;
@@ -407,7 +408,7 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
 
     // Cache for discovered modules and their packages
     private modules: ModuleCache[] = [];
-    private benchmarkItems: Map<string, BenchmarkItem> = new Map();
+    private benchmarkItems: BenchmarkItemCache = new BenchmarkItemCache();
     private loadingPromise: Promise<void> | null = null;
 
     constructor() { }
