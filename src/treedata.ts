@@ -410,8 +410,6 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
     private benchmarkItems: Map<string, BenchmarkItem> = new Map();
     private loadingPromise: Promise<void> | null = null;
 
-    // No secondary caches for TreeItems; use stable ids and ModuleCache as source of truth
-
     constructor() { }
 
     private abortController: AbortController = new AbortController();
@@ -449,12 +447,6 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
     }
 
     getParent(element: Item): vscode.ProviderResult<Item> {
-        // For our tree structure:
-        // - Root level has no parent (return undefined)
-        // - Package items have no parent (return undefined)
-        // - Benchmark functions have package as parent
-        // - Allocation lines have benchmark function as parent
-
         if (!element) {
             return undefined; // Root level
         }
@@ -464,7 +456,7 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
         }
 
         if (element instanceof PackageItem) {
-            return element.parent; // Package's parent is its module
+            return element.parent;
         }
 
         if (element instanceof BenchmarkItem) {
@@ -472,9 +464,6 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
         }
 
         if (element instanceof AllocationItem) {
-            // For allocation lines, we need to reconstruct the benchmark function
-            // This is tricky since we don't store the parent reference
-            // For now, return undefined - this might cause issues with reveal
             return undefined;
         }
 
