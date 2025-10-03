@@ -27,6 +27,26 @@ export class InformationItem extends vscode.TreeItem {
     }
 }
 
+
+const getPackageLabel = (pkg: { name: string; path: string; benchmarks: string[] }): string => {
+    // Get the workspace folder that contains this package
+    const workspaceFolder = vscode.workspace.workspaceFolders?.find(folder =>
+        pkg.path.startsWith(folder.uri.fsPath)
+    );
+
+    if (workspaceFolder) {
+        const relativePath = path.relative(workspaceFolder.uri.fsPath, pkg.path);
+        // Use the package name when at the workspace root or when the
+        // relative path matches the package name; otherwise use the path.
+        if (relativePath === '' || relativePath === pkg.name) {
+            return pkg.name;
+        }
+        return relativePath;
+    }
+
+    return pkg.name;
+}
+
 export class ModuleItem extends vscode.TreeItem {
     public readonly moduleName: string;
     public readonly modulePath: string;
@@ -39,6 +59,26 @@ export class ModuleItem extends vscode.TreeItem {
         super(moduleName, vscode.TreeItemCollapsibleState.Expanded);
         this.moduleName = moduleName;
         this.modulePath = modulePath;
+    }
+
+    getChildren(modules: ModuleCache[]): PackageItem[] {
+        const module = modules.find(m => m.path === this.modulePath);
+        if (!module) {
+            throw new Error('Module not found in cache');
+        }
+
+        const packages: PackageItem[] = [];
+
+        for (const pkg of module.packages) {
+            const item = new PackageItem(
+                getPackageLabel(pkg),
+                pkg.path,
+                this
+            );
+            packages.push(item);
+        }
+
+        return packages;
     }
 }
 
@@ -384,25 +424,6 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
         this.abortController = new AbortController();
     }
 
-    private getPackageLabel(pkg: { name: string; path: string; benchmarks: string[] }): string {
-        // Get the workspace folder that contains this package
-        const workspaceFolder = vscode.workspace.workspaceFolders?.find(folder =>
-            pkg.path.startsWith(folder.uri.fsPath)
-        );
-
-        if (workspaceFolder) {
-            const relativePath = path.relative(workspaceFolder.uri.fsPath, pkg.path);
-            // Use the package name when at the workspace root or when the
-            // relative path matches the package name; otherwise use the path.
-            if (relativePath === '' || relativePath === pkg.name) {
-                return pkg.name;
-            }
-            return relativePath;
-        }
-
-        return pkg.name;
-    }
-
     clearBenchmarkRunState(item: BenchmarkItem): void {
         this._onDidChangeTreeData.fire(item);
     }
@@ -482,7 +503,7 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
         }
 
         if (element instanceof ModuleItem) {
-            return this.getPackagesForModule(element);
+            return element.getChildren(this.modules);
         }
 
         if (element instanceof PackageItem) {
@@ -663,26 +684,6 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
         }
 
         return relativePath.replaceAll('\\', '/');
-    }
-
-    private getPackagesForModule(moduleItem: ModuleItem): PackageItem[] {
-        const module = this.modules.find(m => m.path === moduleItem.modulePath);
-        if (!module) {
-            throw new Error('Module not found in cache');
-        }
-
-        const packages: PackageItem[] = [];
-
-        for (const pkg of module.packages) {
-            const item = new PackageItem(
-                this.getPackageLabel(pkg),
-                pkg.path,
-                moduleItem
-            );
-            packages.push(item);
-        }
-
-        return packages;
     }
 
     /**
