@@ -5,11 +5,11 @@ import { CodeLensProvider } from './codelens';
 export async function activate(context: vscode.ExtensionContext) {
     const treeData = new TreeDataProvider();
 
-    let options: vscode.TreeViewOptions<Item> = {
+    const options: vscode.TreeViewOptions<Item> = {
         treeDataProvider: treeData,
         showCollapseAll: true
     }
-    let treeView = vscode.window.createTreeView<Item>('goAllocationsExplorer', options);
+    const treeView = vscode.window.createTreeView<Item>('goAllocationsExplorer', options);
     context.subscriptions.push(treeView);
 
     // Handle clicks on allocation lines
