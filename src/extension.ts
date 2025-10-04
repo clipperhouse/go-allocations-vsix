@@ -24,12 +24,11 @@ export async function activate(context: vscode.ExtensionContext) {
         async () => {
             try {
                 await treeData.runAllBenchmarks(treeView);
-            } catch (error) {
+            } catch (err) {
                 if (treeData.abortSignal().aborted) {
                     vscode.window.showInformationMessage('Operation(s) cancelled');
                 } else {
-                    console.error('Error running all benchmarks:', error);
-                    vscode.window.showErrorMessage('Error running all benchmarks: ' + (error as Error).message);
+                    vscode.window.showErrorMessage(`${err}`);
                 }
             }
         });
@@ -49,13 +48,11 @@ export async function activate(context: vscode.ExtensionContext) {
             try {
                 treeData.clearBenchmarkRunState(benchmarkItem);
                 await treeView.reveal(benchmarkItem, { expand: true });
-            } catch (error) {
+            } catch (err) {
                 if (signal.aborted) {
-                    console.log('Benchmark operation cancelled');
                     vscode.window.showInformationMessage('Benchmark operation cancelled');
                 } else {
-                    console.error('Error running single benchmark:', error);
-                    vscode.window.showErrorMessage('Error running benchmark: ' + (error as Error).message);
+                    vscode.window.showErrorMessage(`${err}`);
                 }
             }
             // Note: We don't need a finally block to clean up - the manager handles lifecycle
@@ -90,8 +87,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 treeData.clearBenchmarkRunState(benchmarkItem);
                 await treeView.reveal(benchmarkItem, { expand: true, select: true });
             } catch (err) {
-                const msg = err instanceof Error ? err.message : String(err);
-                vscode.window.showErrorMessage(`Go Allocations: ${msg}`);
+                vscode.window.showErrorMessage(`${err}`);
             }
         });
     context.subscriptions.push(runBenchmarkFromEditor);
