@@ -66,11 +66,20 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(refresh);
 
     const codeLensFilter: DocumentFilter = { language: 'go', scheme: 'file', pattern: '**/*_test.go' };
+    const codeLensProvider = new CodeLensProvider();
     const codeLens = vscode.languages.registerCodeLensProvider(
         codeLensFilter,
-        new CodeLensProvider()
+        codeLensProvider
     );
     context.subscriptions.push(codeLens);
+
+    // Listen for configuration changes to refresh code lenses
+    const configChangeListener = vscode.workspace.onDidChangeConfiguration((e) => {
+        if (e.affectsConfiguration('goAllocations.showCodeLens')) {
+            codeLensProvider.refresh();
+        }
+    });
+    context.subscriptions.push(configChangeListener);
 
     // Command invoked by CodeLens in editor to run a specific benchmark
     const runBenchmarkFromEditor = vscode.commands.registerCommand(

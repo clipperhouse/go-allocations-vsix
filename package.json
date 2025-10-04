@@ -68,6 +68,17 @@
                 }
             ]
         },
+        "configuration": {
+            "type": "object",
+            "title": "Go Allocations Explorer",
+            "properties": {
+                "goAllocations.showCodeLens": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Show 'find allocations' code lens in benchmark functions"
+                }
+            }
+        },
         "commands": [
             {
                 "command": "goAllocations.runAllBenchmarks",
