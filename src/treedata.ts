@@ -726,7 +726,7 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
 
         // Get concurrency setting from configuration
         const config = vscode.workspace.getConfiguration('goAllocations');
-        const concurrency = config.get<number>('concurrency', 2);
+        const concurrency = Math.max(1, Math.floor(config.get<number>('concurrency', 2)));
 
         const sema = new Sema(concurrency);
         const promises: Promise<void>[] = [];
