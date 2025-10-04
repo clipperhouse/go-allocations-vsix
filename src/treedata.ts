@@ -770,9 +770,17 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
 
     async findBenchmark(packagePath: string, benchmarkName: string): Promise<BenchmarkItem> {
         await this.ensureLoaded();
-        const benchmarkItem = this.benchmarkItems.find(packagePath, benchmarkName);
+        let benchmarkItem = this.benchmarkItems.find(packagePath, benchmarkName);
+
+        // Retry once after 500ms if not found (workspace symbol index may need time to warm up)
+        // This retry is hiding an await problem that I haven't figured out.
         if (!benchmarkItem) {
-            throw new Error(`Benchmark not found: ${benchmarkName} in package ${packagePath}`);
+            await new Promise(resolve => setTimeout(resolve, 500));
+            benchmarkItem = this.benchmarkItems.find(packagePath, benchmarkName);
+        }
+
+        if (!benchmarkItem) {
+            throw new Error(`Benchmark ${benchmarkName} not found in ${packagePath}, perhaps wait until all packages are loaded and click again.`);
         }
         return benchmarkItem;
     }
