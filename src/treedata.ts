@@ -12,7 +12,7 @@ const execAsync = promisify(exec);
 
 export type Item = ModuleItem | PackageItem | BenchmarkItem | InformationItem | AllocationItem;
 
-export class InformationItem extends vscode.TreeItem {
+class InformationItem extends vscode.TreeItem {
     public readonly contextValue: 'information' = 'information';
 
     constructor(
@@ -46,7 +46,7 @@ const getPackageLabel = (pkg: PackageCache): string => {
     return pkg.name;
 }
 
-export class ModuleItem extends vscode.TreeItem {
+class ModuleItem extends vscode.TreeItem {
     public readonly moduleName: string;
     public readonly modulePath: string;
     public readonly contextValue: 'module' = 'module';
@@ -81,7 +81,7 @@ export class ModuleItem extends vscode.TreeItem {
     }
 }
 
-export class PackageItem extends vscode.TreeItem {
+class PackageItem extends vscode.TreeItem {
     public readonly filePath: string;
     public readonly contextValue: 'package' = 'package';
     public readonly parent: ModuleItem;
@@ -347,9 +347,9 @@ export class BenchmarkItem extends vscode.TreeItem {
     }
 }
 
-export type BenchmarkChildItem = InformationItem | AllocationItem;
+type BenchmarkChildItem = InformationItem | AllocationItem;
 
-export class AllocationItem extends vscode.TreeItem {
+class AllocationItem extends vscode.TreeItem {
     public readonly filePath: string;
     public readonly lineNumber: number;
     public readonly allocationData: AllocationData;
@@ -777,7 +777,7 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
         return benchmarkItem;
     }
 
-    async ensureLoaded(): Promise<void> {
+    private async ensureLoaded(): Promise<void> {
         // Trigger loading if needed (getChildren will create loadingPromise if not started)
         if (!this.loadingPromise) {
             await this.getChildren();
