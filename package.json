@@ -86,12 +86,16 @@
             },
             {
                 "command": "goAllocations.runSingleBenchmark",
-                "title": "Run benchmark",
+                "title": "Run benchmark to discover allocations",
                 "icon": "$(play)"
             },
             {
                 "command": "goAllocations.runBenchmarkFromEditor",
                 "title": "Run Benchmark from Editor"
+            },
+            {
+                "command": "goAllocations.navigateToBenchmark",
+                "title": "Navigate to Benchmark"
             }
         ],
         "menus": {
@@ -115,8 +119,12 @@
             "view/item/context": [
                 {
                     "command": "goAllocations.runSingleBenchmark",
-                    "when": "view == goAllocationsExplorer && viewItem == benchmarkFunction",
+                    "when": "view == goAllocationsExplorer && viewItem == benchmarkItem",
                     "group": "inline"
+                },
+                {
+                    "command": "goAllocations.navigateToBenchmark",
+                    "when": "view == goAllocationsExplorer && viewItem == benchmarkItem"
                 }
             ]
         }

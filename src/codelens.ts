@@ -17,7 +17,7 @@ export class CodeLensProvider implements vscode.CodeLensProvider {
             const line = document.lineAt(i);
             const m = line.text.match(this.benchRegex);
             if (m) {
-                const benchName = m[1];
+                const benchmarkName = m[1];
                 // Unfortunately, there is no official API to control CodeLens ordering across providers.
                 // The best we can do is use the same range as the Go extension and hope VS Code's merge
                 // algorithm places ours in a reasonable position.
@@ -26,7 +26,7 @@ export class CodeLensProvider implements vscode.CodeLensProvider {
                 const cmd: vscode.Command = {
                     command: 'goAllocations.runBenchmarkFromEditor',
                     title: 'find allocations',
-                    arguments: [{ packageDir, benchmarkName: benchName }]
+                    arguments: [{ packageDir, benchmarkName }]
                 };
                 lenses.push(new vscode.CodeLens(range, cmd));
             }

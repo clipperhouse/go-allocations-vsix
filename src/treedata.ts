@@ -12,7 +12,7 @@ const execAsync = promisify(exec);
 
 export type Item = ModuleItem | PackageItem | BenchmarkItem | InformationItem | AllocationItem;
 
-export class InformationItem extends vscode.TreeItem {
+class InformationItem extends vscode.TreeItem {
     public readonly contextValue: 'information' = 'information';
 
     constructor(
@@ -46,7 +46,7 @@ const getPackageLabel = (pkg: PackageCache): string => {
     return pkg.name;
 }
 
-export class ModuleItem extends vscode.TreeItem {
+class ModuleItem extends vscode.TreeItem {
     public readonly moduleName: string;
     public readonly modulePath: string;
     public readonly contextValue: 'module' = 'module';
@@ -81,7 +81,7 @@ export class ModuleItem extends vscode.TreeItem {
     }
 }
 
-export class PackageItem extends vscode.TreeItem {
+class PackageItem extends vscode.TreeItem {
     public readonly filePath: string;
     public readonly contextValue: 'package' = 'package';
     public readonly parent: ModuleItem;
@@ -112,8 +112,8 @@ export class PackageItem extends vscode.TreeItem {
 
         const benchmarkItems: BenchmarkItem[] = [];
 
-        for (const name of pkg.benchmarkNames) {
-            const item = new BenchmarkItem(name, this);
+        for (const benchmark of pkg.benchmarks) {
+            const item = new BenchmarkItem(benchmark, this);
             benchmarkItemCache.add(item);
             benchmarkItems.push(item);
         }
@@ -127,26 +127,28 @@ const routineRegex = /^ROUTINE\s*=+\s*(.+?)\s+in\s+(.+)$/;
 const lineRegex = /^\s*(\d+(?:\.\d+)?[KMGT]?B)?\s*(\d+(?:\.\d+)?[KMGT]?B)?\s*(\d+):\s*(.+)$/;
 
 export class BenchmarkItem extends vscode.TreeItem {
-    public readonly contextValue: 'benchmarkFunction' = 'benchmarkFunction';
+    public readonly contextValue: 'benchmarkItem' = 'benchmarkItem';
     public readonly parent: PackageItem;
+    public readonly location: vscode.Location;
 
     constructor(
-        label: string,
-        parent: PackageItem
+        benchmark: BenchmarkCache,
+        parent: PackageItem,
     ) {
-        super(label, vscode.TreeItemCollapsibleState.Collapsed);
+        super(benchmark.name, vscode.TreeItemCollapsibleState.Collapsed);
+        this.location = benchmark.location;
         this.parent = parent;
 
         this.iconPath = new vscode.ThemeIcon('symbol-function');
-        this.tooltip = `Click to run ${label} and discover allocations`;
+        this.tooltip = `Click to run ${benchmark.name} and discover allocations`;
     }
 
-    get filePath(): string {
+    get folderPath(): string {
         return this.parent.filePath;
     }
 
     async getChildren(signal: AbortSignal): Promise<BenchmarkChildItem[]> {
-        if (!this.filePath) {
+        if (!this.folderPath) {
             return [];
         }
 
@@ -170,7 +172,7 @@ export class BenchmarkItem extends vscode.TreeItem {
                 const { stdout, stderr } = await execAsync(
                     cmd,
                     {
-                        cwd: this.filePath,
+                        cwd: this.folderPath,
                         signal: signal
                     }
                 );
@@ -228,7 +230,7 @@ export class BenchmarkItem extends vscode.TreeItem {
                 const args = ['tool', 'pprof', `-list=${moduleName}`, memprofilePath];
 
                 const child = spawn(cmd, args, {
-                    cwd: this.filePath,
+                    cwd: this.folderPath,
                     signal,
                     stdio: ['ignore', 'pipe', 'pipe']
                 });
@@ -339,11 +341,15 @@ export class BenchmarkItem extends vscode.TreeItem {
         const firstDot = afterSlash.indexOf('.');
         return firstDot >= 0 ? afterSlash.slice(firstDot + 1) : afterSlash;
     }
+
+    async navigateTo(): Promise<void> {
+        await navigateTo(this.location.uri.fsPath, this.location.range.start.line + 1);
+    }
 }
 
-export type BenchmarkChildItem = InformationItem | AllocationItem;
+type BenchmarkChildItem = InformationItem | AllocationItem;
 
-export class AllocationItem extends vscode.TreeItem {
+class AllocationItem extends vscode.TreeItem {
     public readonly filePath: string;
     public readonly lineNumber: number;
     public readonly allocationData: AllocationData;
@@ -377,9 +383,21 @@ export class AllocationItem extends vscode.TreeItem {
     private getImageUri(imageName: string): vscode.Uri {
         return vscode.Uri.joinPath(vscode.Uri.file(__dirname), '..', 'images', imageName);
     }
+
+    async navigateTo(): Promise<void> {
+        await navigateTo(this.filePath, this.lineNumber);
+    }
 }
 
-export interface AllocationData {
+const navigateTo = async (filePath: string, lineNumber: number): Promise<void> => {
+    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath));
+    const editor = await vscode.window.showTextDocument(document);
+    const position = new vscode.Position(lineNumber - 1, 0); // Convert to 0-based line number
+    editor.selection = new vscode.Selection(position, position);
+    editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+}
+
+interface AllocationData {
     flatBytes: string;
     cumulativeBytes: string;
     functionName: string;
@@ -405,7 +423,12 @@ class BenchmarkItemCache extends Map<string, BenchmarkItem> {
 interface PackageCache {
     name: string;
     path: string;
-    benchmarkNames: string[];
+    benchmarks: BenchmarkCache[];
+}
+
+interface BenchmarkCache {
+    name: string;
+    location: vscode.Location;
 }
 
 interface ModuleCache {
@@ -454,6 +477,18 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
         // Fire tree data change event to refresh the view
         this._onDidChangeTreeData.fire();
     }
+
+    async handleSelection(e: vscode.TreeViewSelectionChangeEvent<Item>): Promise<void> {
+        if (e.selection.length === 0) {
+            return;
+        }
+
+        const selectedItem = e.selection[0];
+        if (selectedItem instanceof AllocationItem) {
+            await selectedItem.navigateTo();
+            return;
+        }
+    };
 
     getTreeItem(element: Item): vscode.TreeItem {
         return element;
@@ -532,7 +567,7 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
 
             // Get all benchmark symbols once for the entire workspace
             console.log('Searching for benchmark functions via workspace symbols...');
-            let allBenchmarkSymbols: Array<{ name: string; fileUri: vscode.Uri }> = [];
+            let allBenchmarkSymbols: vscode.SymbolInformation[] = [];
 
             try {
                 // Search for all symbols containing "Benchmark" across the workspace
@@ -545,10 +580,7 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
                     symbol.kind === vscode.SymbolKind.Function &&
                     symbol.location.uri.fsPath.endsWith('_test.go') &&
                     this.benchmarkNameRegex.test(symbol.name)
-                ).map(symbol => ({
-                    name: symbol.name,
-                    fileUri: symbol.location.uri
-                }));
+                );
             } catch (error) {
                 console.warn('Workspace symbol search failed:', error);
             }
@@ -586,7 +618,7 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
     private readonly benchmarkNameRegex = /^Benchmark[A-Z_]/;
     private async loadModulesInWorkspace(
         workspaceFolder: vscode.WorkspaceFolder,
-        allBenchmarkSymbols: Array<{ name: string; fileUri: vscode.Uri }>
+        allBenchmarkSymbols: vscode.SymbolInformation[]
     ): Promise<void> {
         const signal = this.abortSignal();
 
@@ -621,7 +653,7 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
             }
 
             const benchmarkSymbols = allBenchmarkSymbols.filter(symbol =>
-                symbol.fileUri.fsPath.startsWith(rootPath)
+                symbol.location.uri.fsPath.startsWith(rootPath)
             );
 
             console.log(`Found ${benchmarkSymbols.length} benchmark functions in ${workspaceFolder.name}`);
@@ -634,25 +666,28 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
                     throw new Error('Operation cancelled');
                 }
 
-                const packageDir = path.dirname(symbol.fileUri.fsPath);
+                const packageDir = path.dirname(symbol.location.uri.fsPath);
                 const packageName = await this.getPackageNameFromPath(packageDir, rootPath);
 
                 if (!packageMap.has(packageDir)) {
                     packageMap.set(packageDir, {
                         name: packageName,
                         path: packageDir,
-                        benchmarkNames: []
+                        benchmarks: []
                     });
                 }
 
-                packageMap.get(packageDir)!.benchmarkNames.push(symbol.name);
+                packageMap.get(packageDir)!.benchmarks.push({
+                    name: symbol.name,
+                    location: new vscode.Location(symbol.location.uri, symbol.location.range)
+                });
             }
 
             // Add packages with benchmarks to the module
             for (const pkg of packageMap.values()) {
-                if (pkg.benchmarkNames.length > 0) {
+                if (pkg.benchmarks.length > 0) {
                     module.packages.push(pkg);
-                    console.log(`Added package ${pkg.name} with ${pkg.benchmarkNames.length} benchmarks`);
+                    console.log(`Added package ${pkg.name} with ${pkg.benchmarks.length} benchmarks`);
 
                     // Fire update immediately for responsive UI
                     this._onDidChangeTreeData.fire();
@@ -706,8 +741,7 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
                         }
 
                         this.clearBenchmarkRunState(benchmarkItem);
-                        const r = treeView.reveal(benchmarkItem, { expand: true });
-                        await Promise.resolve(r);
+                        await treeView.reveal(benchmarkItem, { expand: true });
                     } catch (error: any) {
                         if (signal.aborted) {
                             console.log('Benchmark cancelled:', benchmarkItem.label);
@@ -743,7 +777,7 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
         return benchmarkItem;
     }
 
-    async ensureLoaded(): Promise<void> {
+    private async ensureLoaded(): Promise<void> {
         // Trigger loading if needed (getChildren will create loadingPromise if not started)
         if (!this.loadingPromise) {
             await this.getChildren();
