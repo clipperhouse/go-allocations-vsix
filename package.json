@@ -75,7 +75,13 @@
                 "goAllocations.showCodeLens": {
                     "type": "boolean",
                     "default": true,
-                    "description": "Show 'find allocations' code lens in benchmark functions"
+                    "description": "Show 'find allocations' code lens on benchmark functions"
+                },
+                "goAllocations.concurrency": {
+                    "type": "number",
+                    "default": 2,
+                    "minimum": 1,
+                    "description": "Maximum number of benchmarks to run concurrently when using 'Run all benchmarks'"
                 }
             }
         },
