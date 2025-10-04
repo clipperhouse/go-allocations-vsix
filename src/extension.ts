@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { TreeDataProvider, Item, BenchmarkItem } from './treedata';
 import { CodeLensProvider } from './codelens';
+import { DocumentFilter } from 'vscode';
 
 export async function activate(context: vscode.ExtensionContext) {
     const treeData = new TreeDataProvider();
@@ -18,7 +19,8 @@ export async function activate(context: vscode.ExtensionContext) {
     });
 
     // Register commands
-    const runAllBenchmarks = vscode.commands.registerCommand('goAllocations.runAllBenchmarks',
+    const runAllBenchmarks = vscode.commands.registerCommand(
+        'goAllocations.runAllBenchmarks',
         async () => {
             try {
                 await treeData.runAllBenchmarks(treeView);
@@ -33,14 +35,14 @@ export async function activate(context: vscode.ExtensionContext) {
         });
     context.subscriptions.push(runAllBenchmarks);
 
-    const stopAllBenchmarks = vscode.commands.registerCommand('goAllocations.stopAllBenchmarks',
-        () => {
-            vscode.window.showInformationMessage('Cancelling operation(s). Go processes may take a moment to terminate.');
-            treeData.cancelAll();
-        });
+    const stopAllBenchmarks = vscode.commands.registerCommand(
+        'goAllocations.stopAllBenchmarks',
+        () => treeData.cancelAll()
+    );
     context.subscriptions.push(stopAllBenchmarks);
 
-    const runSingleBenchmark = vscode.commands.registerCommand('goAllocations.runSingleBenchmark',
+    const runSingleBenchmark = vscode.commands.registerCommand(
+        'goAllocations.runSingleBenchmark',
         async (benchmarkItem: BenchmarkItem) => {
             const signal = treeData.abortSignal();
 
@@ -60,39 +62,49 @@ export async function activate(context: vscode.ExtensionContext) {
         });
     context.subscriptions.push(runSingleBenchmark);
 
-    const refresh = vscode.commands.registerCommand('goAllocations.refresh',
-        () => treeData.refresh());
+    const refresh = vscode.commands.registerCommand(
+        'goAllocations.refresh',
+        () => treeData.refresh()
+    );
     context.subscriptions.push(refresh);
 
-    const codeLens = vscode.languages.registerCodeLensProvider({ language: 'go', scheme: 'file' }, new CodeLensProvider());
+    const codeLensFilter: DocumentFilter = { language: 'go', scheme: 'file', pattern: '**/*_test.go' };
+    const codeLens = vscode.languages.registerCodeLensProvider(
+        codeLensFilter,
+        new CodeLensProvider()
+    );
     context.subscriptions.push(codeLens);
 
     // Command invoked by CodeLens in editor to run a specific benchmark
-    const runBenchmarkFromEditor = vscode.commands.registerCommand('goAllocations.runBenchmarkFromEditor', async (args: { packageDir: string; benchmarkName: string }) => {
-        try {
-            if (!args || !args.packageDir || !args.benchmarkName) {
-                throw new Error('Missing benchmark information from editor.');
-            }
-            // Focus the Go Allocations Explorer view
-            await vscode.commands.executeCommand('workbench.view.extension.goAllocations');
+    const runBenchmarkFromEditor = vscode.commands.registerCommand(
+        'goAllocations.runBenchmarkFromEditor',
+        async (args: { packageDir: string; benchmarkName: string }) => {
+            try {
+                if (!args || !args.packageDir || !args.benchmarkName) {
+                    throw new Error('Missing benchmark information from editor.');
+                }
+                // Focus the Go Allocations Explorer view
+                await vscode.commands.executeCommand('workbench.view.extension.goAllocations');
 
-            const benchmarkItem = await treeData.findBenchmark(args.packageDir, args.benchmarkName);
-            treeData.clearBenchmarkRunState(benchmarkItem);
-            await treeView.reveal(benchmarkItem, { expand: true, select: true });
-        } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            vscode.window.showErrorMessage(`Go Allocations: ${msg}`);
-        }
-    });
+                const benchmarkItem = await treeData.findBenchmark(args.packageDir, args.benchmarkName);
+                treeData.clearBenchmarkRunState(benchmarkItem);
+                await treeView.reveal(benchmarkItem, { expand: true, select: true });
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                vscode.window.showErrorMessage(`Go Allocations: ${msg}`);
+            }
+        });
     context.subscriptions.push(runBenchmarkFromEditor);
 
-    const navigateToBenchmark = vscode.commands.registerCommand('goAllocations.navigateToBenchmark', async (benchmarkItem: BenchmarkItem) => {
-        try {
-            await benchmarkItem.navigateTo();
-        } catch (err) {
-            vscode.window.showErrorMessage(`${err}`);
-        }
-    });
+    const navigateToBenchmark = vscode.commands.registerCommand(
+        'goAllocations.navigateToBenchmark',
+        async (benchmarkItem: BenchmarkItem) => {
+            try {
+                await benchmarkItem.navigateTo();
+            } catch (err) {
+                vscode.window.showErrorMessage(`${err}`);
+            }
+        });
     context.subscriptions.push(navigateToBenchmark);
 }
 
