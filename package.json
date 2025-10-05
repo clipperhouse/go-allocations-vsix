@@ -6,7 +6,7 @@
     "version": "0.4.0",
     "publisher": "Clipperhouse",
     "engines": {
-        "vscode": "^1.74.0"
+        "vscode": "^1.90.0"
     },
     "extensionDependencies": [
         "golang.go"
@@ -45,8 +45,7 @@
     },
     "activationEvents": [
         "workspaceContains:**/*_test.go",
-        "onLanguage:go",
-        "onCommand:goAllocations.runBenchmarkFromEditor"
+        "onLanguage:go"
     ],
     "main": "./out/extension.js",
     "contributes": {
@@ -159,7 +158,7 @@
     "devDependencies": {
         "@types/node": "16.x",
         "@types/shell-quote": "^1.7.5",
-        "@types/vscode": "^1.74.0",
+        "@types/vscode": "^1.90.0",
         "esbuild": "^0.25.10",
         "typescript": "^4.9.4"
     },
