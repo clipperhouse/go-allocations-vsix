@@ -156,7 +156,7 @@
         "typecheck:watch": "tsc --noEmit --watch"
     },
     "devDependencies": {
-        "@types/node": "16.x",
+        "@types/node": "20.x",
         "@types/shell-quote": "^1.7.5",
         "@types/vscode": "^1.90.0",
         "esbuild": "^0.25.10",
