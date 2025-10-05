@@ -38,6 +38,7 @@ export class CodeLensProvider implements vscode.CodeLensProvider {
                 const cmd: vscode.Command = {
                     command: 'goAllocations.runBenchmarkFromEditor',
                     title: 'find allocations',
+                    tooltip: 'Run this benchmark in Go Allocations Explorer',
                     arguments: [{ packageDir, benchmarkName }]
                 };
                 lenses.push(new vscode.CodeLens(range, cmd));
