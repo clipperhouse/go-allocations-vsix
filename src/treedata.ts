@@ -724,7 +724,11 @@ export class TreeDataProvider implements vscode.TreeDataProvider<Item> {
     async runAllBenchmarks(treeView: vscode.TreeView<Item>): Promise<void> {
         const signal = this.abortSignal();
 
-        const sema = new Sema(2);
+        // Get concurrency setting from configuration
+        const config = vscode.workspace.getConfiguration('goAllocations');
+        const concurrency = Math.max(1, Math.floor(config.get<number>('concurrency', 2)));
+
+        const sema = new Sema(concurrency);
         const promises: Promise<void>[] = [];
 
         try {

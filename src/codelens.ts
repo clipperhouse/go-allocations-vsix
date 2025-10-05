@@ -8,7 +8,19 @@ export class CodeLensProvider implements vscode.CodeLensProvider {
 
     constructor() { }
 
+    refresh(): void {
+        this.onDidChangeCodeLensesEmitter.fire();
+    }
+
     provideCodeLenses(document: vscode.TextDocument, _token: vscode.CancellationToken): vscode.ProviderResult<vscode.CodeLens[]> {
+        // Check if code lens is enabled in settings
+        const config = vscode.workspace.getConfiguration('goAllocations');
+        const showCodeLens = config.get<boolean>('showCodeLens', true);
+
+        if (!showCodeLens) {
+            return [];
+        }
+
         // Only add to _test.go files
         if (!document.fileName.endsWith('_test.go')) return [];
 

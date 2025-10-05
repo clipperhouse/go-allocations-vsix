@@ -33,5 +33,5 @@ When I ask you to "review this PR", use the gh CLI tool to get information
 about the pull request, based on the current local git branch.
 
 When I ask you to publish your review summary to the PR, use the gh CLI tool
-to do so, and **clearly identify** who you are (Cursor), that this was an
+to do so, and **clearly identify** who you are (for example, VS Code Copilot, Cursor, etc), that this was an
 automated review, and what LLM model you are using.
